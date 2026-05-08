@@ -8,6 +8,7 @@ import { createField, FIELD_PRESETS, TILE } from './field.js';
 import { createInput, CONTROL_SCHEMES } from './input.js';
 import { createPlayer, stepPlayer, tilesUnderPlayer } from './players.js';
 import { createBomb, computeExplosionSegments, playerOnTile, EXPLOSION_TTL } from './bombs.js';
+import { createPickup, pickRandomPickup, applyPickup, DROP_CHANCE, SLOW_DURATION } from './pickups.js';
 
 const HUMAN_SCHEMES = ['wasd', 'arrows', 'ijkl', 'numpad'];
 
@@ -33,9 +34,22 @@ export function createEngine(lobby, hooks){
 
   const bombs = [];
   const explosions = [];
+  const pickups = [];                     // power-ups sitting on the board
   const bombByTile = new Map();
+  const pickupByTile = new Map();         // 'x,y' -> pickup id
   let pendingEvents = [];
   const prevBomb = new Map();
+
+  const goodieFreq = lobby.goodieFreq != null ? lobby.goodieFreq : 1;
+  const dropChance = DROP_CHANCE[goodieFreq] ?? DROP_CHANCE[1];
+
+  /* Slow callback handed to applyPickup so it can affect other players. */
+  function slowOthers(self, durationSec){
+    for(const other of players){
+      if(other === self || !other.alive) continue;
+      other.slowUntil = Math.max(other.slowUntil || 0, elapsed + durationSec);
+    }
+  }
 
   /* Round-tracking. */
   let elapsed = 0;
@@ -67,7 +81,7 @@ export function createEngine(lobby, hooks){
       for(const b of bombs){
         if(!p.passthrough.has(b.id)) solid.add(b.x + ',' + b.y);
       }
-      stepPlayer(p, r.dx, r.dy, dt, field, solid);
+      stepPlayer(p, r.dx, r.dy, dt, field, solid, elapsed);
 
       if(p.passthrough.size > 0){
         const overlap = new Set(tilesUnderPlayer(p).map(([x,y]) => x+','+y));
@@ -77,16 +91,45 @@ export function createEngine(lobby, hooks){
         }
       }
 
-      if(r.bombEdge && p.bombsLive < p.bombMax){
-        const tx = Math.floor(p.x);
-        const ty = Math.floor(p.y);
-        if(field.at(tx, ty) === TILE.FLOOR && !bombByTile.has(tx+','+ty)){
-          const bomb = createBomb({ ownerIdx: p.idx, x: tx, y: ty, range: p.range });
-          bombs.push(bomb);
-          bombByTile.set(tx+','+ty, bomb.id);
-          p.bombsLive++;
-          p.passthrough.add(bomb.id);
-          pendingEvents.push({ type: 'bombPlaced', bomb });
+      /* Pickup detection: any pickup tile we now overlap is collected. */
+      for(const [tx, ty] of tilesUnderPlayer(p)){
+        const key = tx + ',' + ty;
+        const pid = pickupByTile.get(key);
+        if(pid != null){
+          const pi = pickups.findIndex(x => x.id === pid);
+          if(pi >= 0){
+            const pu = pickups[pi];
+            applyPickup(p, pu.type, { elapsed, slowOthers });
+            pickups.splice(pi, 1);
+            pickupByTile.delete(key);
+            pendingEvents.push({ type: 'pickupTaken', idx: p.idx, pickup: pu });
+          }
+        }
+      }
+
+      /* Bomb placement, with remote-detonate fallback when at max. */
+      if(r.bombEdge){
+        if(p.bombsLive < p.bombMax){
+          const tx = Math.floor(p.x);
+          const ty = Math.floor(p.y);
+          if(field.at(tx, ty) === TILE.FLOOR && !bombByTile.has(tx+','+ty)){
+            const range = p.hasSuper ? Math.max(field.width, field.height) : p.range;
+            const bomb = createBomb({ ownerIdx: p.idx, x: tx, y: ty, range });
+            if(p.hasRemote) bomb.fuse = Infinity;
+            if(p.hasSuper){ bomb.super = true; p.hasSuper = false; }
+            bombs.push(bomb);
+            bombByTile.set(tx+','+ty, bomb.id);
+            p.bombsLive++;
+            p.passthrough.add(bomb.id);
+            pendingEvents.push({ type: 'bombPlaced', bomb });
+          }
+        } else if(p.hasRemote){
+          /* At max — remote-detonate every bomb of mine that's still ticking. */
+          for(const b of bombs){
+            if(b.ownerIdx === p.idx && !b.detonating){
+              b.detonating = true;
+            }
+          }
         }
       }
     }
@@ -113,9 +156,27 @@ export function createEngine(lobby, hooks){
       pendingEvents.push({ type: 'bombDetonated', bomb: b, segments: segs });
 
       for(const s of segs){
+        /* Step 1: burn any pre-existing pickup on this tile (before we
+           potentially drop a fresh one as a result of breaking a box). */
+        const preBurnId = pickupByTile.get(s.x+','+s.y);
+        if(preBurnId != null){
+          const pi = pickups.findIndex(x => x.id === preBurnId);
+          if(pi >= 0){
+            pickups.splice(pi, 1);
+            pickupByTile.delete(s.x+','+s.y);
+            pendingEvents.push({ type: 'pickupBurned', x: s.x, y: s.y });
+          }
+        }
         if(field.at(s.x, s.y) === TILE.BOX){
           field.set(s.x, s.y, TILE.FLOOR);
           pendingEvents.push({ type: 'boxBroken', x: s.x, y: s.y });
+          if(Math.random() < dropChance){
+            const type = pickRandomPickup();
+            const pickup = createPickup(type, s.x, s.y);
+            pickups.push(pickup);
+            pickupByTile.set(s.x+','+s.y, pickup.id);
+            pendingEvents.push({ type: 'pickupDropped', pickup });
+          }
         }
         const chainId = bombByTile.get(s.x+','+s.y);
         if(chainId){
@@ -128,8 +189,13 @@ export function createEngine(lobby, hooks){
         for(const p of players){
           if(!p.alive) continue;
           if(playerOnTile(p, s.x, s.y)){
+            /* Shield consumed first; player survives. */
+            if(p.shieldStacks > 0){
+              p.shieldStacks -= 1;
+              pendingEvents.push({ type: 'shieldUsed', idx: p.idx });
+              continue;
+            }
             p.alive = false;
-            /* Self-KO doesn't count as a kill. */
             if(b.ownerIdx !== p.idx){
               kosByIdx.set(b.ownerIdx, (kosByIdx.get(b.ownerIdx) || 0) + 1);
             }
@@ -209,6 +275,7 @@ export function createEngine(lobby, hooks){
     players,
     bombs,
     explosions,
+    pickups,
     presetId,
     timeLimit,
     get elapsed(){ return elapsed; },

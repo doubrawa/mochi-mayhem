@@ -3,6 +3,7 @@ import {
   bombCanvas, exCenterCanvas, exArmCanvas,
   PUPS, CHARS,
 } from '../sprites.js';
+import { GHOST_DURATION } from '../game/pickups.js';
 import { createEngine } from '../game/engine.js';
 import { TILE, FIELD_PRESETS } from '../game/field.js';
 import { SCHEME_LABEL } from '../game/input.js';
@@ -12,6 +13,7 @@ const TS = 42;                 // tile pixel size — must match CSS .board --ts
 const PLAYER_PX = 38;          // player sprite display size
 const BOMB_PX = 32;            // bomb sprite display size
 const EX_PX = 38;              // explosion piece display size
+const PICKUP_PX = 28;          // pickup sprite display size
 
 let engine = null;
 let timerHandle = null;
@@ -52,9 +54,10 @@ export function render(ctx){
   engine = createEngine(lobby, {
     onEvents: (events) => handleEvents(events, view),
     onRender: () => {
-      renderPlayers(view, engine.players);
+      renderPlayers(view, engine.players, engine.elapsed);
       renderBombs(view, engine.bombs);
       renderExplosions(view, engine.explosions);
+      renderPickups(view, engine.pickups);
     },
     onRoundEnd: (result) => scheduleRoundEnd(ctx, result),
   });
@@ -145,10 +148,13 @@ function buildBoard(boardEl, field, view){
     }
   }
 
-  /* Three absolute-positioned layers stacked over the grid. */
+  /* Layers stacked over the grid in z-order: pickups under bombs under
+     players under explosions. */
+  view.pickupLayer    = makeLayer(field, 2);
   view.bombLayer      = makeLayer(field, 3);
   view.playerLayer    = makeLayer(field, 5);
   view.explosionLayer = makeLayer(field, 7);
+  boardEl.appendChild(view.pickupLayer);
   boardEl.appendChild(view.bombLayer);
   boardEl.appendChild(view.playerLayer);
   boardEl.appendChild(view.explosionLayer);
@@ -168,7 +174,7 @@ function makeLayer(field, z){
 
 /* ============ PER-FRAME RENDERING ============ */
 
-function renderPlayers(view, players){
+function renderPlayers(view, players, elapsed){
   if(!view.playerSprites){
     view.playerSprites = new Map();
     for(const p of players){
@@ -188,6 +194,15 @@ function renderPlayers(view, players){
     if(!p.alive){
       div.style.filter = 'grayscale(.7) opacity(.5)';
       div.style.zIndex = '1';
+    } else {
+      /* Active visuals: ghost = translucent, slowed = blue tint, shield = gold ring. */
+      let filter = '';
+      const ghosting = elapsed != null && elapsed < p.ghostUntil;
+      const slowed   = elapsed != null && elapsed < p.slowUntil;
+      if(ghosting) filter += 'opacity(.55) ';
+      if(slowed)   filter += 'hue-rotate(180deg) ';
+      if(p.shieldStacks > 0) filter += 'drop-shadow(0 0 3px #ffe79e) ';
+      div.style.filter = filter.trim();
     }
   }
 }
@@ -270,6 +285,34 @@ function renderExplosions(view, explosions){
   }
 }
 
+function renderPickups(view, pickups){
+  if(!view.pickupSprites) view.pickupSprites = new Map();
+  const seen = new Set();
+  for(const pk of pickups){
+    seen.add(pk.id);
+    let entry = view.pickupSprites.get(pk.id);
+    if(!entry){
+      const wrap = makePosWrapper();
+      const inner = makeAnimatedSprite('pulse-slow', PICKUP_PX);
+      const cv = pupCanvas(pk.type);
+      cv.style.width = PICKUP_PX + 'px';
+      cv.style.height = PICKUP_PX + 'px';
+      inner.appendChild(cv);
+      wrap.appendChild(inner);
+      wrap.style.transform = `translate(${((pk.x + 0.5) * TS).toFixed(2)}px, ${((pk.y + 0.5) * TS).toFixed(2)}px)`;
+      view.pickupLayer.appendChild(wrap);
+      entry = { wrap };
+      view.pickupSprites.set(pk.id, entry);
+    }
+  }
+  for(const [id, entry] of view.pickupSprites){
+    if(!seen.has(id)){
+      entry.wrap.remove();
+      view.pickupSprites.delete(id);
+    }
+  }
+}
+
 /* Outer position wrapper — owns the translate(x,y) for placement.
    Has zero size; children are absolutely positioned within. */
 function makePosWrapper(){
@@ -310,12 +353,22 @@ function handleEvents(events, view){
     if(ev.type === 'boxBroken'){
       const t = view.tileEls[ev.y * view.fieldWidth + ev.x];
       if(t){
-        /* Remove all children (the box canvas).  Floor classes stay. */
         while(t.firstChild) t.removeChild(t.firstChild);
       }
     } else if(ev.type === 'playerKilled'){
       const card = view.hudByIdx.get(ev.idx);
       if(card) card.classList.add('dead');
+    } else if(ev.type === 'pickupTaken'){
+      const card = view.hudByIdx.get(ev.idx);
+      if(card){
+        const pups = card.querySelector('[data-pups]');
+        if(pups){
+          const slot = document.createElement('span');
+          slot.className = 'pup';
+          slot.appendChild(pupCanvas(ev.pickup.type));
+          pups.appendChild(slot);
+        }
+      }
     }
   }
 }
@@ -345,6 +398,7 @@ function buildHudCard(p, match){
   card.innerHTML = `
     <div class="row1" data-row1></div>
     <div class="hearts" data-hearts></div>
+    <div class="pups" data-pups></div>
     <div class="ctrl-mini" style="font-size:7px;color:var(--mid);margin-top:6px">${ctrlLabel}</div>
   `;
   const row1 = card.querySelector('[data-row1]');
