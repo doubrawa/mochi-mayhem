@@ -25,7 +25,8 @@ export function defaultLobbyState(){
   };
 }
 
-export function render(app, navigate, state){
+export function render(ctx){
+  const { app, navigate, lobby: state } = ctx;
   const section = document.createElement('section');
   section.className = 'screen med active';
 

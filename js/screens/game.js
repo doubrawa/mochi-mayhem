@@ -15,20 +15,25 @@ const EX_PX = 38;              // explosion piece display size
 
 let engine = null;
 let timerHandle = null;
+let endTransitionHandle = null;
 
-export function render(app, navigate, state){
+const ROUND_END_DELAY_MS = 1500;   // beat for the killing explosion to fade
+
+export function render(ctx){
+  const { app, navigate, lobby, match } = ctx;
   const section = document.createElement('section');
   section.className = 'screen gp active';
+  const initialSecs = lobby.timeLimit || 0;
   section.innerHTML = `
     <div class="gp">
       <div class="gpcol left" id="leftHud"></div>
 
       <div class="stage">
         <div class="topbar">
-          <div class="round-pill">ROUND&nbsp;1/${state.rounds}</div>
-          <div class="timer" id="timer">${formatTime(state.timeLimit || 150)}</div>
+          <div class="round-pill">ROUND&nbsp;${match.current}/${match.rounds}</div>
+          <div class="timer" id="timer">${initialSecs > 0 ? formatTime(initialSecs) : '∞'}</div>
           <div class="live">● LIVE</div>
-          <button class="end-round" data-action="end-round">END ROUND ▶</button>
+          <button class="end-round" data-action="end-round">FORFEIT ▶</button>
         </div>
         <div class="board" id="board"></div>
         <div class="pup-row">
@@ -42,53 +47,71 @@ export function render(app, navigate, state){
   `;
   app.appendChild(section);
 
-  /* Spin up the engine. */
-  const view = {};   // owns DOM refs we update each frame
-  engine = createEngine(state, {
+  /* Spin up the engine.  It owns the round timer; we mirror it visually below. */
+  const view = {};
+  engine = createEngine(lobby, {
     onEvents: (events) => handleEvents(events, view),
     onRender: () => {
       renderPlayers(view, engine.players);
       renderBombs(view, engine.bombs);
       renderExplosions(view, engine.explosions);
     },
+    onRoundEnd: (result) => scheduleRoundEnd(ctx, result),
   });
 
   const boardEl = section.querySelector('#board');
   buildBoard(boardEl, engine.field, view);
   buildPowerupRow(section.querySelector('#pupGrid'));
 
-  /* HUD. */
+  /* HUD reflects the current match roster. */
   const lh = section.querySelector('#leftHud');
   const rh = section.querySelector('#rightHud');
   const half = Math.ceil(engine.players.length / 2);
   view.hudByIdx = new Map();
-  engine.players.slice(0, half).forEach(p => { const c = buildHudCard(p); view.hudByIdx.set(p.idx, c); lh.appendChild(c); });
-  engine.players.slice(half).forEach(p => { const c = buildHudCard(p); view.hudByIdx.set(p.idx, c); rh.appendChild(c); });
+  engine.players.slice(0, half).forEach(p => { const c = buildHudCard(p, match); view.hudByIdx.set(p.idx, c); lh.appendChild(c); });
+  engine.players.slice(half).forEach(p => { const c = buildHudCard(p, match); view.hudByIdx.set(p.idx, c); rh.appendChild(c); });
 
   const pupRow = section.querySelector('.pup-row');
   pupRow.style.width = (engine.field.width * TS + 8) + 'px';
 
-  /* Timer. */
-  let secs = state.timeLimit || 150;
+  /* Visual timer mirrors engine.elapsed against lobby.timeLimit. */
   const timerEl = section.querySelector('#timer');
-  if(secs > 0){
+  if(initialSecs > 0){
     timerHandle = setInterval(() => {
-      secs = Math.max(0, secs - 1);
-      timerEl.textContent = formatTime(secs);
-      if(secs === 0) stopTimer();
-    }, 1000);
+      const remaining = Math.max(0, Math.ceil(initialSecs - engine.elapsed));
+      timerEl.textContent = formatTime(remaining);
+      if(remaining <= 0) stopTimer();
+    }, 250);
   }
 
+  /* Forfeit button: produce a draw result for this round. */
   section.querySelector('[data-action="end-round"]').addEventListener('click', () => {
-    teardown();
-    navigate('roundend');
+    if(endTransitionHandle != null) return;
+    const result = {
+      winnerIdx: null,
+      durationSec: engine ? engine.elapsed : 0,
+      kos: new Map(),
+      reason: 'forfeit',
+    };
+    scheduleRoundEnd(ctx, result);
   });
 
   engine.start();
 }
 
+function scheduleRoundEnd(ctx, result){
+  if(endTransitionHandle != null) return;   // already scheduled
+  stopTimer();
+  endTransitionHandle = setTimeout(() => {
+    endTransitionHandle = null;
+    ctx.recordRound(result);
+    ctx.navigate('roundend');
+  }, ROUND_END_DELAY_MS);
+}
+
 export function teardown(){
   stopTimer();
+  if(endTransitionHandle != null){ clearTimeout(endTransitionHandle); endTransitionHandle = null; }
   if(engine){ engine.stop(); engine = null; }
 }
 
@@ -290,10 +313,13 @@ function buildPowerupRow(grid){
   });
 }
 
-function buildHudCard(p){
+function buildHudCard(p, match){
   const card = document.createElement('div');
   card.className = 'pcard';
   card.dataset.idx = p.idx;
+  /* Cumulative wins from earlier rounds, if any. */
+  const matchPlayer = match?.players?.find(x => x.idx === p.idx);
+  const wins = matchPlayer?.score || 0;
   const ctrlLabel = p.scheme ? SCHEME_LABEL[p.scheme] : (p.type === 'cpu' ? 'CPU' : '—');
   card.innerHTML = `
     <div class="row1" data-row1></div>
@@ -303,7 +329,7 @@ function buildHudCard(p){
   const row1 = card.querySelector('[data-row1]');
   row1.appendChild(charCanvas(p.charId));
   const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = p.name || nameFor(p);
-  const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = '0';
+  const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = wins > 0 ? `${wins}W` : '—';
   row1.appendChild(nm); row1.appendChild(sc);
   const hearts = card.querySelector('[data-hearts]');
   for(let i = 0; i < 3; i++) hearts.appendChild(heartCanvas(false));

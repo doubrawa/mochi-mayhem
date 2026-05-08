@@ -1,6 +1,7 @@
 import { bombCanvas, sparkCanvas, cloudCanvas, icoCanvas, charCanvas } from '../sprites.js';
 
-export function render(app, navigate){
+export function render(ctx){
+  const { app, navigate } = ctx;
   const section = document.createElement('section');
   section.className = 'screen tall active';
   section.innerHTML = `

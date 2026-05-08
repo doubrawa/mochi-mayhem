@@ -1,92 +1,108 @@
-import { charCanvas, crownCanvas, icoCanvas, pupCanvas } from '../sprites.js';
+import { charCanvas, crownCanvas, icoCanvas } from '../sprites.js';
+import { rankings, isMatchOver, matchChampion } from '../game/match.js';
 
-const DEMO_RESULTS = [
-  { id:'mochi',   name:'MOCHI',   ko:4, pups:['bomb','bomb','fire','glove','shield'], time:'1:42', score:1200, place:1 },
-  { id:'bubble',  name:'BUBBLE',  ko:2, pups:['bomb','fire','speed'],                 time:'2:30', score:740,  place:2 },
-  { id:'biscuit', name:'BISCUIT', ko:2, pups:['speed','remote'],                      time:'2:30', score:620,  place:3 },
-  { id:'pickle',  name:'PICKLE',  ko:1, pups:['kick'],                                time:'2:30', score:380,  place:4 },
-];
 const PLACE_GLYPH = ['','🥇','🥈','🥉','4','5','6','7','8'];
 
-export function render(app, navigate){
-  const winner = DEMO_RESULTS[0];
+export function render(ctx){
+  const { app, navigate, match, lastRound } = ctx;
+  const matchOver = isMatchOver(match);
+  const ranked = rankings(match);
+
+  /* Pick who appears on the podium. */
+  const champion = matchOver ? matchChampion(match) : null;
+  const roundWinner = lastRound?.winnerIdx != null
+    ? match.players.find(p => p.idx === lastRound.winnerIdx)
+    : null;
+  const podium = champion || roundWinner;
+
+  /* Banner copy. */
+  let bannerText;
+  if(matchOver) bannerText = champion ? 'MATCH&nbsp;CHAMPION!' : 'MATCH&nbsp;DRAW!';
+  else if(roundWinner) bannerText = `ROUND&nbsp;${match.current - 1}&nbsp;WINNER!`;
+  else bannerText = `ROUND&nbsp;${match.current - 1}&nbsp;DRAW!`;
 
   const section = document.createElement('section');
   section.className = 'screen we active';
   section.innerHTML = `
     <div class="conf" id="conf"></div>
-    <div class="banner">ROUND&nbsp;WINNER!</div>
+    <div class="banner">${bannerText}</div>
 
     <div class="winner">
-      <span class="crown" data-spr="crown"></span>
-      <span class="ch" data-spr="char" data-id="${winner.id}"></span>
-      <div class="pedestal"></div>
+      <span class="crown" data-spr="crown" ${podium ? '' : 'style="display:none"'}></span>
+      <span class="ch" data-spr="char" ${podium ? `data-id="${podium.id}"` : 'style="display:none"'}></span>
+      <div class="pedestal" ${podium ? '' : 'style="display:none"'}></div>
     </div>
 
     <div class="scoreboard">
       <div class="sb-h">
-        <span></span><span>PLAYER</span><span>K/O</span><span>POWER-UPS</span><span>TIME</span><span>SCORE</span>
+        <span></span><span>PLAYER</span><span>WINS</span><span>TOTAL K/O</span><span>LAST RUN</span><span>SCORE</span>
       </div>
       <div data-rows></div>
     </div>
 
     <div class="actions">
       <button class="pxbtn" data-action="menu"><span class="glyph" data-spr="ico-back"></span>BACK TO MENU</button>
-      <button class="pxbtn primary" data-action="next"><span class="glyph" data-spr="ico-play"></span>NEXT ROUND</button>
+      ${matchOver ? '' : `<button class="pxbtn primary" data-action="next"><span class="glyph" data-spr="ico-play"></span>NEXT ROUND</button>`}
     </div>
   `;
   app.appendChild(section);
 
-  /* fill sprite slots */
+  /* Fill sprite slots. */
   section.querySelectorAll('[data-spr]').forEach(el => {
     const k = el.getAttribute('data-spr');
-    if(k === 'crown') el.appendChild(crownCanvas());
-    else if(k === 'char') el.appendChild(charCanvas(el.getAttribute('data-id')));
+    if(k === 'crown' && podium) el.appendChild(crownCanvas());
+    else if(k === 'char' && podium) el.appendChild(charCanvas(podium.id));
     else if(k === 'ico-back') el.appendChild(icoCanvas('back'));
     else if(k === 'ico-play') el.appendChild(icoCanvas('play'));
   });
 
-  /* scoreboard rows */
-  const rows = section.querySelector('[data-rows]');
-  DEMO_RESULTS.forEach(r => rows.appendChild(buildRow(r)));
+  /* Scoreboard rows: ranked. The "LAST RUN" column shows K/Os from the round
+     just finished so each round contributes visible info. */
+  const rowsHost = section.querySelector('[data-rows]');
+  ranked.forEach((p, i) => {
+    const place = i + 1;
+    const lastKos = lastRound?.kos?.get?.(p.idx) || 0;
+    const score = p.score * 100 + p.ko * 10;
+    rowsHost.appendChild(buildRow({ place, p, lastKos, score, isWinner: place === 1 && (champion || roundWinner) }));
+  });
 
-  /* confetti */
-  const conf = section.querySelector('#conf');
-  const palette = ['#ff6b9d','#ffe79e','#9fe0b8','#7ec4ff','#d2b3ee','#ff7a3d'];
-  for(let i = 0; i < 60; i++){
-    const c = document.createElement('div');
-    c.className = 'c';
-    c.style.left = Math.random() * 100 + '%';
-    c.style.background = palette[i % palette.length];
-    c.style.animationDelay = (Math.random() * 4) + 's';
-    c.style.animationDuration = (3 + Math.random() * 3) + 's';
-    if(i % 3 === 0) c.style.borderRadius = '50%';
-    if(i % 4 === 0){ c.style.width = '6px'; c.style.height = '14px'; }
-    conf.appendChild(c);
+  /* Confetti only when there's a real winner to celebrate. */
+  if(podium){
+    const conf = section.querySelector('#conf');
+    const palette = ['#ff6b9d','#ffe79e','#9fe0b8','#7ec4ff','#d2b3ee','#ff7a3d'];
+    for(let i = 0; i < 60; i++){
+      const c = document.createElement('div');
+      c.className = 'c';
+      c.style.left = Math.random() * 100 + '%';
+      c.style.background = palette[i % palette.length];
+      c.style.animationDelay = (Math.random() * 4) + 's';
+      c.style.animationDuration = (3 + Math.random() * 3) + 's';
+      if(i % 3 === 0) c.style.borderRadius = '50%';
+      if(i % 4 === 0){ c.style.width = '6px'; c.style.height = '14px'; }
+      conf.appendChild(c);
+    }
   }
 
   section.querySelector('[data-action="menu"]').addEventListener('click', () => navigate('title'));
-  section.querySelector('[data-action="next"]').addEventListener('click', () => navigate('game'));
+  const nextBtn = section.querySelector('[data-action="next"]');
+  if(nextBtn) nextBtn.addEventListener('click', () => navigate('game'));
 }
 
-function buildRow(r){
+function buildRow({ place, p, lastKos, score, isWinner }){
   const row = document.createElement('div');
-  row.className = 'sb-row' + (r.place === 1 ? ' win' : '');
+  row.className = 'sb-row' + (isWinner && place === 1 ? ' win' : '');
 
-  const pos = document.createElement('span'); pos.className = 'pos'; pos.textContent = PLACE_GLYPH[r.place] || r.place;
+  const pos = document.createElement('span'); pos.className = 'pos'; pos.textContent = PLACE_GLYPH[place] || place;
   const pname = document.createElement('span'); pname.className = 'pname';
-  const av = charCanvas(r.id); av.classList.add('av'); pname.appendChild(av);
-  pname.appendChild(document.createTextNode(r.name));
+  const av = charCanvas(p.id); av.classList.add('av'); pname.appendChild(av);
+  pname.appendChild(document.createTextNode(p.name));
 
-  const ko = document.createElement('span'); ko.textContent = r.ko;
+  const wins = document.createElement('span'); wins.textContent = String(p.score);
+  const ko = document.createElement('span'); ko.textContent = String(p.ko);
+  const last = document.createElement('span'); last.textContent = lastKos > 0 ? `${lastKos} KO` : '—';
+  const sc = document.createElement('span');
+  sc.innerHTML = isWinner && place === 1 ? `<b>${score}</b>` : String(score);
 
-  const pup = document.createElement('span'); pup.className = 'pl-mini';
-  r.pups.forEach(id => pup.appendChild(pupCanvas(id)));
-
-  const time = document.createElement('span'); time.textContent = r.time;
-  const score = document.createElement('span');
-  score.innerHTML = r.place === 1 ? `<b>${r.score}</b>` : String(r.score);
-
-  row.append(pos, pname, ko, pup, time, score);
+  row.append(pos, pname, wins, ko, last, sc);
   return row;
 }
