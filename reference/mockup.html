@@ -1,0 +1,1577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Boom Buddies — Visual Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#fef3dd;
+    --bg2:#ffe9c4;
+    --sky:#cfe9ff;
+    --cream:#fff8e7;
+    --ink:#2a2238;
+    --ink2:#4a3a5e;
+    --mid:#7d6996;
+    --line:#3a2a4d;
+
+    --mint:#9fe0b8;
+    --lav:#d2b3ee;
+    --blue:#b8d8ee;
+    --peach:#ffd1a6;
+    --yellow:#ffe79e;
+
+    --pink:#ff6b9d;
+    --pink2:#ffa3c0;
+    --flame:#ff7a3d;
+    --flame2:#ffb061;
+    --hot:#ff4a55;
+
+    /* 8 player colors */
+    --p1:#6dd5e8; /* cyan */
+    --p2:#e878c9; /* magenta */
+    --p3:#f5d958; /* yellow */
+    --p4:#7ed98a; /* green */
+    --p5:#ff9b6e; /* orange */
+    --p6:#b58ee8; /* purple */
+    --p7:#ff9ec7; /* pink */
+    --p8:#f5ece0; /* white-cream */
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:'Press Start 2P',monospace;
+    background:
+      repeating-linear-gradient(45deg, #f9eccd 0 14px, #fef3dd 14px 28px);
+    color:var(--ink);
+    -webkit-font-smoothing:none;
+    image-rendering:pixelated;
+  }
+  svg, img.spr{image-rendering:pixelated; image-rendering:crisp-edges; display:block}
+
+  .divider{
+    max-width:1280px;
+    margin:32px auto 12px;
+    padding:14px 18px;
+    color:var(--mid);
+    font-size:11px;
+    letter-spacing:.05em;
+    display:flex;align-items:center;gap:14px;
+  }
+  .divider .num{
+    background:var(--ink); color:var(--cream);
+    padding:6px 10px; border:3px solid var(--ink);
+    box-shadow:4px 4px 0 var(--mid);
+  }
+  .divider .ttl{color:var(--ink); font-size:14px}
+  .divider .line{flex:1; height:0; border-top:3px dashed var(--mid)}
+
+  .screen{
+    width:1280px; max-width:calc(100vw - 24px);
+    margin:0 auto 24px;
+    background:var(--cream);
+    border:6px solid var(--ink);
+    box-shadow: 0 0 0 3px var(--cream), 12px 12px 0 var(--ink);
+    position:relative; overflow:hidden;
+  }
+  .screen.tall{height:820px}
+  .screen.med{min-height:880px}
+  .screen.gp{height:900px}
+  .screen.we{height:820px}
+
+  /* ============ TITLE SCREEN ============ */
+  .title{
+    height:820px;
+    background:
+      radial-gradient(ellipse 70% 60% at 50% 30%, #ffe1ee 0%, transparent 70%),
+      linear-gradient(180deg, #cfe9ff 0%, #e6d5f3 55%, #ffd9c0 100%);
+    position:relative;
+  }
+  .stars{position:absolute; inset:0; pointer-events:none}
+  .star{position:absolute; width:6px;height:6px; background:#fff8e7; box-shadow:6px 0 0 #fff8e7,-6px 0 0 #fff8e7,0 6px 0 #fff8e7,0 -6px 0 #fff8e7; animation:twinkle 2.4s steps(2) infinite}
+  @keyframes twinkle{0%,100%{opacity:1}50%{opacity:.3}}
+  @keyframes wobble{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-6px) rotate(2deg)}}
+  @keyframes hover6{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+  @keyframes fuseFlick{0%,100%{opacity:1}50%{opacity:.4}}
+  @keyframes blink{0%,90%,100%{transform:scaleY(1)}94%{transform:scaleY(.1)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes confetti{0%{transform:translateY(-40px) rotate(0)}100%{transform:translateY(900px) rotate(540deg)}}
+  @keyframes wave{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(18deg)}}
+  @keyframes float{0%,100%{transform:translate(0,0)}50%{transform:translate(8px,-4px)}}
+
+  .clouds{position:absolute; inset:0; pointer-events:none}
+  .cloud{position:absolute; animation: float 6s ease-in-out infinite}
+
+  .logo-wrap{
+    position:absolute; left:50%; top:80px; transform:translateX(-50%);
+    text-align:center; z-index:5;
+  }
+  .logo{
+    font-family:'Press Start 2P',monospace;
+    font-size:72px;
+    line-height:1;
+    color:#fff8e7;
+    letter-spacing:.02em;
+    text-shadow:
+      0 4px 0 var(--pink),
+      0 8px 0 var(--pink),
+      4px 0 0 var(--pink),
+      4px 4px 0 var(--pink),
+      4px 8px 0 var(--pink),
+      0 12px 0 var(--ink),
+      4px 12px 0 var(--ink),
+      8px 12px 0 var(--ink),
+      -4px 12px 0 var(--ink),
+      -4px 8px 0 var(--ink),
+      -4px 4px 0 var(--ink),
+      -4px 0 0 var(--ink),
+      8px 8px 0 var(--ink),
+      8px 4px 0 var(--ink),
+      8px 0 0 var(--ink),
+      0 -4px 0 var(--ink),
+      4px -4px 0 var(--ink),
+      -4px -4px 0 var(--ink);
+    animation: wobble 3.8s ease-in-out infinite;
+  }
+  .logo .small{font-size:24px; display:block; margin-top:24px;
+    text-shadow:0 4px 0 var(--ink),4px 4px 0 var(--ink),-4px 4px 0 var(--ink),0 -4px 0 var(--ink); color:#fff;}
+  .logo-bomb{
+    position:absolute; right:-100px; top:8px;
+    animation: pulse .9s ease-in-out infinite;
+  }
+  .logo-spark{position:absolute; right:-110px; top:-30px; animation:fuseFlick .35s steps(2) infinite}
+
+  .menu{
+    position:absolute; left:50%; top:340px; transform:translateX(-50%);
+    display:flex; flex-direction:column; gap:18px; z-index:6;
+  }
+  .pxbtn{
+    font-family:'Press Start 2P',monospace; font-size:18px;
+    color:var(--ink); background:var(--cream);
+    border:none; padding:18px 32px;
+    cursor:pointer;
+    width:380px; text-align:left;
+    display:flex; align-items:center; gap:18px;
+    /* chunky pixel border */
+    box-shadow:
+      0 -4px 0 var(--ink), 0 4px 0 var(--ink),
+      -4px 0 0 var(--ink), 4px 0 0 var(--ink),
+      0 8px 0 var(--mid),
+      -4px 4px 0 var(--ink), 4px 4px 0 var(--ink),
+      -4px -4px 0 var(--ink), 4px -4px 0 var(--ink);
+    transition: transform .08s steps(2);
+  }
+  .pxbtn:hover{transform:translate(2px,2px); background:var(--yellow)}
+  .pxbtn .glyph{width:32px; height:32px; flex:none}
+  .pxbtn.primary{background:var(--pink); color:#fff8e7}
+  .pxbtn.primary:hover{background:var(--flame)}
+
+  .title-mascots{position:absolute; left:0; right:0; bottom:30px; height:240px; pointer-events:none}
+  .mascot{position:absolute; bottom:30px}
+  .mascot.m1{left:80px; animation: hover6 1.6s steps(2) infinite}
+  .mascot.m2{right:80px; animation: hover6 1.8s steps(2) infinite .2s}
+  .mascot.m3{left:50%; transform:translateX(-50%); bottom:20px; animation: hover6 2.1s steps(2) infinite .4s}
+  .arm{position:absolute; transform-origin:50% 90%; animation: wave 1.2s ease-in-out infinite}
+
+  .footer{
+    position:absolute; left:0; right:0; bottom:8px; text-align:center;
+    font-size:10px; color:var(--mid);
+  }
+  .footer .heart{color:var(--pink)}
+
+  .ground{position:absolute; left:0; right:0; bottom:0; height:80px;
+    background:
+      repeating-linear-gradient(90deg, #d6f0c4 0 24px, #c5e7af 24px 48px);
+    border-top:4px solid var(--ink);
+  }
+  .ground::before{
+    content:""; position:absolute; left:0; right:0; top:-12px; height:12px;
+    background:repeating-linear-gradient(90deg, #c5e7af 0 12px, transparent 12px 24px);
+  }
+
+  /* ============ LOBBY ============ */
+  .lobby{padding:40px 56px 56px; background:
+      radial-gradient(ellipse at top, #ffe9c4 0%, var(--cream) 60%);
+  }
+  .lobby h2{
+    font-size:28px; margin:0 0 6px; color:var(--ink);
+    text-shadow: 0 4px 0 var(--peach);
+  }
+  .lobby .sub{font-size:11px; color:var(--mid); margin:0 0 28px}
+  .panel{
+    background:#fff; border:4px solid var(--ink);
+    box-shadow:6px 6px 0 var(--ink);
+    padding:20px;
+    margin-bottom:24px;
+  }
+  .panel-h{
+    display:flex; align-items:center; gap:12px;
+    font-size:12px; color:var(--ink2); margin-bottom:16px;
+  }
+  .panel-h .pip{width:14px;height:14px;background:var(--pink); box-shadow:4px 0 0 var(--ink),-4px 0 0 var(--ink),0 4px 0 var(--ink),0 -4px 0 var(--ink)}
+
+  .grids{display:grid; grid-template-columns:repeat(3,1fr); gap:18px}
+  .gcard{
+    border:4px solid var(--ink); padding:14px;
+    background:var(--cream);
+    cursor:pointer;
+    box-shadow:4px 4px 0 var(--ink);
+    transition: transform .08s steps(2);
+  }
+  .gcard:hover{transform:translate(-2px,-2px); background:var(--yellow)}
+  .gcard.sel{background:var(--mint); box-shadow:4px 4px 0 var(--ink), inset 0 0 0 4px var(--ink)}
+  .gcard .lbl{font-size:12px; margin-bottom:10px; display:flex; justify-content:space-between; color:var(--ink)}
+  .gcard .meta{font-size:9px; color:var(--mid); margin-top:10px}
+  .mini{
+    background:var(--blue); border:2px solid var(--ink);
+    padding:6px;
+    display:grid; gap:1px;
+    image-rendering:pixelated;
+  }
+  .mini i{display:block}
+
+  .pgrid{display:grid; grid-template-columns:repeat(4, 1fr); gap:14px}
+  .pslot{
+    border:4px solid var(--ink); background:#fff;
+    padding:12px; position:relative;
+    box-shadow:4px 4px 0 var(--ink);
+  }
+  .pslot.off{background:repeating-linear-gradient(45deg, #f3eedf 0 8px, #ebe4d2 8px 16px); opacity:.85}
+  .pslot.cpu{background:#f0e9fa}
+  .pslot .top{display:flex; justify-content:space-between; align-items:center; font-size:9px; color:var(--mid); margin-bottom:8px}
+  .pslot .av{display:flex; gap:10px; align-items:center}
+  .pslot .nm{
+    flex:1; font-family:'Press Start 2P',monospace; font-size:10px;
+    background:var(--cream); border:3px solid var(--ink); padding:6px 8px;
+    color:var(--ink); width:100%;
+  }
+  .pslot .ctrl{
+    margin-top:10px; font-size:8px; color:var(--ink2);
+    background:var(--peach); border:3px solid var(--ink);
+    padding:5px 7px; display:inline-block;
+  }
+  .pslot .seg{
+    display:flex; gap:0; margin-top:8px;
+    border:3px solid var(--ink); width:fit-content;
+  }
+  .pslot .seg span{
+    font-size:8px; padding:4px 7px; cursor:pointer;
+    border-right:3px solid var(--ink); background:#fff;
+  }
+  .pslot .seg span:last-child{border-right:0}
+  .pslot .seg .on{background:var(--ink); color:var(--cream)}
+
+  .twocol{display:grid; grid-template-columns:1fr 1fr; gap:24px}
+  .seg-row{display:flex; gap:0; margin-top:12px; border:4px solid var(--ink); width:fit-content}
+  .seg-row span{
+    font-size:11px; padding:10px 16px; cursor:pointer;
+    border-right:4px solid var(--ink); background:#fff;
+  }
+  .seg-row span:last-child{border-right:0}
+  .seg-row .on{background:var(--pink); color:#fff8e7}
+
+  .slider{
+    margin-top:8px;
+    height:24px; background:var(--cream); border:4px solid var(--ink);
+    position:relative;
+  }
+  .slider .fill{height:100%; width:60%; background:var(--mint); border-right:4px solid var(--ink)}
+  .slider .ticks{position:absolute; inset:0; display:flex; justify-content:space-between; padding:4px 8px; font-size:9px; color:var(--ink2); align-items:center}
+
+  .start-btn{
+    margin:24px auto 0; display:block;
+    font-family:'Press Start 2P',monospace; font-size:24px;
+    padding:22px 48px; background:var(--flame); color:#fff8e7;
+    border:none; cursor:pointer;
+    box-shadow:
+      0 -6px 0 var(--ink), 0 6px 0 var(--ink),
+      -6px 0 0 var(--ink), 6px 0 0 var(--ink),
+      0 12px 0 var(--hot),
+      -6px 6px 0 var(--ink), 6px 6px 0 var(--ink),
+      -6px -6px 0 var(--ink), 6px -6px 0 var(--ink);
+    animation: pulse 1.4s ease-in-out infinite;
+    letter-spacing:.05em;
+  }
+
+  /* ============ GAMEPLAY ============ */
+  .gp{
+    display:grid; grid-template-columns:240px 1fr 240px;
+    gap:0;
+    background:
+      radial-gradient(ellipse at top, #ffd9bf 0%, transparent 60%),
+      linear-gradient(180deg, #d6e8ff 0%, #ffe1ee 60%, #d8f0c4 100%);
+    padding:0;
+  }
+  .gpcol{padding:14px 12px}
+  .gpcol.left{border-right:4px solid var(--ink); background:rgba(255,255,255,.45)}
+  .gpcol.right{border-left:4px solid var(--ink); background:rgba(255,255,255,.45)}
+
+  .pcard{
+    border:4px solid var(--ink); background:var(--cream);
+    margin-bottom:10px; padding:10px;
+    box-shadow:3px 3px 0 var(--ink);
+    position:relative;
+  }
+  .pcard .row1{display:flex; gap:8px; align-items:center}
+  .pcard .nm{font-size:9px; color:var(--ink)}
+  .pcard .sc{font-size:10px; color:var(--ink2); margin-left:auto}
+  .pcard .hearts{display:flex; gap:3px; margin-top:6px}
+  .pcard .pups{display:flex; gap:3px; margin-top:6px; flex-wrap:wrap}
+  .pcard .pup{width:18px; height:18px; background:var(--blue); border:2px solid var(--ink); display:flex; align-items:center; justify-content:center}
+  .pcard.dead{opacity:.45; filter:grayscale(.7)}
+  .pcard .badge{position:absolute; top:-8px; right:-8px; background:var(--pink); color:#fff; font-size:7px; padding:3px 5px; border:2px solid var(--ink)}
+
+  .stage{
+    padding:14px 0;
+    display:flex; flex-direction:column; align-items:center;
+    position:relative;
+  }
+  .topbar{
+    display:flex; gap:14px; align-items:center; margin-bottom:14px;
+  }
+  .timer{
+    font-family:'VT323',monospace; font-size:48px; line-height:1;
+    color:var(--hot); background:var(--ink); padding:6px 18px;
+    border:4px solid var(--ink); letter-spacing:.05em;
+    box-shadow:inset 0 0 0 2px #1a1228;
+    text-shadow:0 0 8px var(--hot);
+  }
+  .round-pill{
+    font-size:11px; padding:10px 14px; background:var(--yellow);
+    border:4px solid var(--ink); box-shadow:3px 3px 0 var(--ink);
+  }
+  .live{
+    font-size:9px; padding:6px 8px; background:var(--hot); color:#fff8e7;
+    border:3px solid var(--ink);
+    animation: fuseFlick .8s steps(2) infinite;
+  }
+
+  .board{
+    --ts: 38px; /* tile size on screen */
+    display:grid;
+    grid-template-columns: repeat(15, var(--ts));
+    grid-template-rows: repeat(13, var(--ts));
+    gap:0;
+    border:4px solid var(--ink);
+    box-shadow: 6px 6px 0 var(--ink), inset 0 0 0 2px #fff;
+    background:#cfe9ff;
+  }
+  .tile{position:relative; width:var(--ts); height:var(--ts)}
+  .tile.floor{
+    background:
+      linear-gradient(45deg, #d8eecf 25%, transparent 25%) 0 0/8px 8px,
+      linear-gradient(-45deg, #d8eecf 25%, transparent 25%) 0 0/8px 8px,
+      #c8e3bd;
+  }
+  .tile.floor.b{
+    background:
+      linear-gradient(45deg, #cae3bf 25%, transparent 25%) 0 0/8px 8px,
+      linear-gradient(-45deg, #cae3bf 25%, transparent 25%) 0 0/8px 8px,
+      #b8d6ad;
+  }
+  .tile > svg{position:absolute; inset:0; margin:auto}
+  .tile .label{
+    position:absolute; left:50%; top:100%; transform:translate(-50%,4px);
+    font-size:7px; background:var(--ink); color:var(--cream);
+    padding:3px 4px; white-space:nowrap; z-index:5;
+    border:2px solid var(--ink);
+  }
+  .tile .label::before{
+    content:""; position:absolute; left:50%; top:-6px; transform:translateX(-50%);
+    border:3px solid transparent; border-bottom-color:var(--ink);
+  }
+
+  .pup-row{
+    margin-top:18px; padding:12px;
+    background:#fff; border:4px solid var(--ink); box-shadow:4px 4px 0 var(--ink);
+    width:calc(15 * 38px + 8px);
+  }
+  .pup-row h4{margin:0 0 10px; font-size:10px; color:var(--ink2); display:flex; align-items:center; gap:8px}
+  .pup-row h4 .dot{width:10px;height:10px; background:var(--pink); display:inline-block}
+  .pup-grid{display:grid; grid-template-columns:repeat(6, 1fr); gap:10px}
+  .pup-cell{
+    border:3px solid var(--ink); background:var(--blue); padding:8px;
+    display:flex; gap:8px; align-items:center;
+    font-size:8px; color:var(--ink); line-height:1.4;
+  }
+  .pup-cell .ico{width:24px;height:24px;flex:none}
+  .pup-cell .nm{font-size:8px; margin-bottom:4px}
+  .pup-cell .ds{font-size:7px; color:var(--ink2); font-family:'VT323',monospace; font-size:13px; line-height:1.1}
+
+  /* explosion flames pulse */
+  .pulse-fast{animation: pulse .35s steps(2) infinite}
+  .pulse-slow{animation: pulse 1.4s ease-in-out infinite}
+  .breathe{animation: hover6 2.4s ease-in-out infinite}
+  .blink-eye{animation: blink 4s steps(2) infinite}
+
+  /* deco bg around board */
+  .gp .stage::before{
+    content:""; position:absolute; left:0; right:0; bottom:-20px; height:80px;
+    background: repeating-linear-gradient(90deg, #c5e7af 0 28px, #b6dba0 28px 56px);
+    border-top:4px solid var(--ink);
+    z-index:-1;
+  }
+
+  /* ============ ROUND END ============ */
+  .we{
+    background:
+      radial-gradient(ellipse 60% 50% at 50% 30%, #ffe1ee 0%, transparent 70%),
+      linear-gradient(180deg, #ffd6e8 0%, #f3d6ee 60%, #d6e8ff 100%);
+    position:relative;
+    text-align:center;
+  }
+  .we .banner{
+    font-size:64px; padding-top:60px;
+    color:#fff8e7;
+    text-shadow:
+      0 4px 0 var(--flame), 0 8px 0 var(--flame),
+      0 12px 0 var(--ink), 4px 12px 0 var(--ink),-4px 12px 0 var(--ink),
+      4px 8px 0 var(--flame),-4px 8px 0 var(--flame),
+      4px 4px 0 var(--flame),-4px 4px 0 var(--flame),
+      -4px 0 0 var(--ink), 4px 0 0 var(--ink),
+      -4px -4px 0 var(--ink), 4px -4px 0 var(--ink), 0 -4px 0 var(--ink);
+    animation: wobble 2.2s ease-in-out infinite;
+  }
+  .we .winner{margin:24px auto 0; position:relative; width:200px; height:240px}
+  .we .winner .pedestal{
+    position:absolute; left:50%; transform:translateX(-50%);
+    bottom:0; width:160px; height:60px;
+    background:var(--yellow); border:4px solid var(--ink);
+    box-shadow:6px 6px 0 var(--ink);
+  }
+  .we .winner .pedestal::after{
+    content:"#1"; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    font-size:24px; color:var(--ink);
+  }
+  .we .winner .ch{
+    position:absolute; left:50%; bottom:60px; transform:translateX(-50%);
+    animation: hover6 .9s steps(2) infinite;
+  }
+  .we .winner .crown{position:absolute; left:50%; top:-8px; transform:translateX(-50%); animation: hover6 1.2s ease-in-out infinite}
+  .we .conf{position:absolute; inset:0; pointer-events:none; overflow:hidden}
+  .we .c{position:absolute; width:10px;height:10px; top:-20px; animation: confetti 4.5s linear infinite}
+  .we .scoreboard{
+    margin:32px auto 24px; max-width:760px;
+    background:#fff; border:4px solid var(--ink); box-shadow:6px 6px 0 var(--ink);
+    padding:18px;
+  }
+  .we .sb-h{display:grid; grid-template-columns: 30px 1fr 60px 90px 80px 60px; font-size:10px; color:var(--mid); margin-bottom:10px; gap:12px; padding:0 8px}
+  .we .sb-row{display:grid; grid-template-columns: 30px 1fr 60px 90px 80px 60px; gap:12px; align-items:center; padding:8px; border-top:3px dashed var(--ink); font-size:10px; color:var(--ink); text-align:left}
+  .we .sb-row .pos{font-size:14px}
+  .we .sb-row.win{background:var(--yellow)}
+  .we .actions{display:flex; gap:18px; justify-content:center; margin-top:8px}
+  .we .actions .pxbtn{width:auto}
+
+  /* small px utilities */
+  .mt8{margin-top:8px}.mt12{margin-top:12px}
+  .row{display:flex; gap:8px; align-items:center}
+  .nowrap{white-space:nowrap}
+
+  .help-strip{
+    max-width:1280px; margin:8px auto 32px; padding:14px 20px;
+    background:var(--ink); color:var(--cream); font-size:10px;
+    line-height:1.6;
+    box-shadow:8px 8px 0 var(--mid);
+  }
+  .help-strip b{color:var(--pink2)}
+</style>
+</head>
+<body>
+
+<div class="help-strip">
+  <b>BOOM BUDDIES — visual reference deck.</b> Four screens, scroll to compare.
+  All sprites rendered as inline pixel-SVG — no external images. Type: Press Start 2P + VT323 for digital readouts.
+  Colors: warm pastels (peach / mint / lavender / blue / yellow), pink + orange accents for hazards.
+</div>
+
+<!-- =================== SCREEN 1: TITLE =================== -->
+<div class="divider"><span class="num">01</span><span class="ttl">Title Screen</span><span class="line"></span></div>
+
+<section class="screen tall">
+  <div class="title">
+    <div class="stars">
+      <span class="star" style="left:8%; top:14%"></span>
+      <span class="star" style="left:18%; top:8%; animation-delay:.4s"></span>
+      <span class="star" style="left:84%; top:12%; animation-delay:.7s"></span>
+      <span class="star" style="left:92%; top:24%; animation-delay:1.1s"></span>
+      <span class="star" style="left:6%; top:38%; animation-delay:.2s"></span>
+    </div>
+    <div class="clouds">
+      <span class="cloud" style="left:6%; top:12%"           data-spr="cloud"></span>
+      <span class="cloud" style="right:6%; top:18%; animation-delay:1.5s" data-spr="cloud"></span>
+      <span class="cloud" style="left:18%; top:46%; animation-delay:.7s"  data-spr="cloud2"></span>
+    </div>
+
+    <div class="logo-wrap">
+      <span class="logo">BOOM<span class="small">·BUDDIES·</span></span>
+      <span class="logo-bomb"  data-spr="bomb-big"></span>
+      <span class="logo-spark" data-spr="spark"></span>
+    </div>
+
+    <div class="menu">
+      <button class="pxbtn primary"><span class="glyph" data-spr="ico-play"></span>PLAY</button>
+      <button class="pxbtn"><span class="glyph" data-spr="ico-mp"></span>LOCAL MULTIPLAYER</button>
+      <button class="pxbtn"><span class="glyph" data-spr="ico-cog"></span>SETTINGS</button>
+      <button class="pxbtn"><span class="glyph" data-spr="ico-cup"></span>HIGHSCORES</button>
+    </div>
+
+    <div class="title-mascots">
+      <span class="mascot m1" data-spr="chibi-cyan-wave"></span>
+      <span class="mascot m2" data-spr="chibi-pink-throw"></span>
+      <span class="mascot m3" data-spr="chibi-yellow-jump"></span>
+    </div>
+
+    <div class="ground"></div>
+    <div class="footer">MADE WITH <span class="heart">♥</span> &nbsp;·&nbsp; GITHUB.COM/YOUR-USER/BOOM-BUDDIES &nbsp;·&nbsp; v0.1</div>
+  </div>
+</section>
+
+<!-- =================== SCREEN 2: LOBBY =================== -->
+<div class="divider"><span class="num">02</span><span class="ttl">Lobby · Game Setup</span><span class="line"></span></div>
+
+<section class="screen med">
+  <div class="lobby">
+    <h2>GAME SETUP</h2>
+    <p class="sub">PICK A FIELD · ASSIGN PLAYERS · SET THE RULES</p>
+
+    <div class="panel">
+      <div class="panel-h"><span class="pip"></span>FIELD SIZE</div>
+      <div class="grids" id="grids">
+        <div class="gcard"     data-grid="11x9"><div class="lbl"><span>SMALL</span><span>11×9</span></div><div class="mini" data-mini="11x9"></div><div class="meta">FAST · COZY · PERFECT FOR 2-3</div></div>
+        <div class="gcard sel" data-grid="15x13"><div class="lbl"><span>MEDIUM</span><span>15×13</span></div><div class="mini" data-mini="15x13"></div><div class="meta">CLASSIC · 4-6 PLAYERS · RECOMMENDED</div></div>
+        <div class="gcard"     data-grid="19x17"><div class="lbl"><span>LARGE</span><span>19×17</span></div><div class="mini" data-mini="19x17"></div><div class="meta">CHAOS · 6-8 PLAYERS · BRING SNACKS</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><span class="pip"></span>PLAYERS &nbsp;<span style="color:var(--mid); font-size:9px; margin-left:auto">UP TO 8 LOCAL</span></div>
+      <div class="pgrid" id="pgrid"></div>
+    </div>
+
+    <div class="twocol">
+      <div class="panel">
+        <div class="panel-h"><span class="pip"></span>GOODIE FREQUENCY</div>
+        <div class="slider">
+          <div class="fill"></div>
+          <div class="ticks"><span>SPARSE</span><span>NORMAL</span><span>GENEROUS</span></div>
+        </div>
+        <div style="font-size:9px; color:var(--mid); margin-top:14px">CONTROLS HOW OFTEN BOXES DROP POWER-UPS WHEN BLOWN UP.</div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><span class="pip"></span>ROUND RULES</div>
+        <div style="font-size:10px; color:var(--ink2); margin-top:6px">ROUNDS</div>
+        <div class="seg-row"><span>1</span><span class="on">3</span><span>5</span></div>
+        <div style="font-size:10px; color:var(--ink2); margin-top:14px">TIME LIMIT</div>
+        <div class="seg-row"><span>1:30</span><span class="on">2:30</span><span>3:30</span><span>∞</span></div>
+      </div>
+    </div>
+
+    <button class="start-btn">START!</button>
+  </div>
+</section>
+
+<!-- =================== SCREEN 3: GAMEPLAY =================== -->
+<div class="divider"><span class="num">03</span><span class="ttl">Gameplay · In-Match View</span><span class="line"></span></div>
+
+<section class="screen gp">
+  <div class="gp">
+    <div class="gpcol left" id="leftHud"></div>
+
+    <div class="stage">
+      <div class="topbar">
+        <div class="round-pill">ROUND&nbsp;2/3</div>
+        <div class="timer" id="timer">2:14</div>
+        <div class="live">● LIVE</div>
+      </div>
+
+      <div class="board" id="board"></div>
+
+      <div class="pup-row">
+        <h4><span class="dot"></span>POWER-UPS · ALL 12 PICK-UPS (TOOLTIPS SHOWN ON FIELD)</h4>
+        <div class="pup-grid" id="pupGrid"></div>
+      </div>
+    </div>
+
+    <div class="gpcol right" id="rightHud"></div>
+  </div>
+</section>
+
+<!-- =================== SCREEN 4: ROUND END =================== -->
+<div class="divider"><span class="num">04</span><span class="ttl">Round End · Victory</span><span class="line"></span></div>
+
+<section class="screen we">
+  <div class="conf" id="conf"></div>
+  <div class="banner">ROUND&nbsp;WINNER!</div>
+
+  <div class="winner">
+    <span class="crown" data-spr="crown"></span>
+    <span class="ch"    data-spr="chibi-pink-cheer"></span>
+    <div class="pedestal"></div>
+  </div>
+
+  <div class="scoreboard">
+    <div class="sb-h"><span></span><span>PLAYER</span><span>K/O</span><span>POWER-UPS</span><span>TIME</span><span>SCORE</span></div>
+    <div class="sb-row win"><span class="pos">🥇</span><span class="row"><span data-spr="chibi-pink-mini"></span>&nbsp;MOCHI</span><span>4</span><span class="row" id="sbpu1"></span><span>1:42</span><span><b>1200</b></span></div>
+    <div class="sb-row"><span class="pos">🥈</span><span class="row"><span data-spr="chibi-cyan-mini"></span>&nbsp;BUBBLE</span><span>2</span><span class="row" id="sbpu2"></span><span>2:30</span><span>740</span></div>
+    <div class="sb-row"><span class="pos">🥉</span><span class="row"><span data-spr="chibi-yellow-mini"></span>&nbsp;BISCUIT</span><span>2</span><span class="row" id="sbpu3"></span><span>2:30</span><span>620</span></div>
+    <div class="sb-row"><span class="pos">4</span><span class="row"><span data-spr="chibi-green-mini"></span>&nbsp;PICKLE</span><span>1</span><span class="row" id="sbpu4"></span><span>2:30</span><span>380</span></div>
+  </div>
+
+  <div class="actions">
+    <button class="pxbtn"><span class="glyph" data-spr="ico-back"></span>BACK TO MENU</button>
+    <button class="pxbtn primary"><span class="glyph" data-spr="ico-play"></span>NEXT ROUND</button>
+  </div>
+</section>
+
+<div style="max-width:1280px; margin:0 auto 60px; padding:18px; font-size:9px; color:var(--mid); text-align:center">
+  END OF MOCKUP DECK · BUILT AS PIXEL-SVG · FONTS: PRESS START 2P + VT323
+</div>
+
+<script>
+/* =====================================================
+   Tiny pixel-SVG sprite helper.
+   Sprites are defined as arrays of strings, one char per pixel.
+   '.' = transparent.  Other chars look up palette.
+   ===================================================== */
+function spr(grid, pal, scale){
+  scale = scale || 4;
+  const h = grid.length, w = grid[0].length;
+  let rects = '';
+  for(let y=0;y<h;y++){
+    let x=0;
+    while(x<w){
+      const c = grid[y][x];
+      if(c==='.' || c===' '){ x++; continue; }
+      let x2=x+1;
+      while(x2<w && grid[y][x2]===c) x2++;
+      const color = pal[c] || c;
+      rects += `<rect x="${x}" y="${y}" width="${x2-x}" height="1" fill="${color}"/>`;
+      x = x2;
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w*scale}" height="${h*scale}" shape-rendering="crispEdges">${rects}</svg>`;
+}
+
+/* ----- common palettes ----- */
+const INK = '#2a2238', INK2='#4a3a5e', WHT='#fff8e7', BLK='#1a1228';
+const SKIN = '#ffd9c0', SKIN2='#ffb494';
+const CHEEK = '#ff9bbb';
+
+/* ----- 16x16 chibi character (parameterized) ----- */
+function chibi(bodyCol, bodyDark, opts){
+  opts = opts || {};
+  // O=outline, B=body main, D=body dark/shadow, S=skin, k=skin shadow, W=white eye, E=eye, C=cheek
+  const pal = {O:INK, B:bodyCol, D:bodyDark, S:SKIN, k:SKIN2, W:WHT, E:INK, C:CHEEK, H:'#3a2a4d', a:'#000'};
+  const a = [
+    "................",
+    ".....OOOOOO.....",
+    "....OBBBBBBO....",
+    "...OBBBBBBBBO...",
+    "...OBSSSSSSBO...",
+    "..OBSSWEWESSBO..",
+    "..OBSSWEWESSBO..",
+    "..OBkSSSSSSkBO..",
+    "..OBSCSSSSCSBO..",
+    "...OBSSSSSSBO...",
+    "....OBBBBBBO....",
+    "...OBDDBBDDBO...",
+    "..OBDDBBBBDDBO..",
+    "..OBDDBBBBDDBO..",
+    "...OO.OOOO.OO...",
+    "...OO......OO..."
+  ];
+  return spr(a, pal, opts.scale||4);
+}
+
+/* mini 8x8 chibi for HUD/scoreboard */
+function chibiMini(bodyCol, bodyDark){
+  const pal={O:INK, B:bodyCol, D:bodyDark, S:SKIN, E:INK, C:CHEEK};
+  const a=[
+    "..OOOO..",
+    ".OBBBBO.",
+    ".OSSSSO.",
+    "OSEWWEEO",
+    "OSCSSCSO",
+    ".OBBBBO.",
+    "OBDBBDBO",
+    ".O.OO.O."
+  ];
+  return spr(a,pal,3);
+}
+
+/* chibi waving (right arm raised) — 18x18 */
+function chibiWave(bodyCol, bodyDark){
+  const pal={O:INK, B:bodyCol, D:bodyDark, S:SKIN, k:SKIN2, W:WHT, E:INK, C:CHEEK};
+  const a=[
+    "..................",
+    ".....OOOOOO.......",
+    "....OBBBBBBO......",
+    "...OBBBBBBBBO.....",
+    "...OBSSSSSSBO.....",
+    "..OBSSWEWESSBO..OO",
+    "..OBSSWEWESSBO.OSO",
+    "..OBkSSSSSSkBO.OSO",
+    "..OBSCSSSSCSBO.OSO",
+    "...OBSSSSSSBO.OBBO",
+    "....OBBBBBBO.OBBO.",
+    "...OBDDBBDDBOBBBO.",
+    "..OBDDBBBBDDBBBO..",
+    "..OBDDBBBBDDBBO...",
+    "...OO.OOOO.OO.....",
+    "...OO......OO.....",
+    "..................",
+    ".................."
+  ];
+  return spr(a,pal,4);
+}
+
+/* chibi throwing bomb */
+function chibiThrow(bodyCol, bodyDark){
+  const pal={O:INK, B:bodyCol, D:bodyDark, S:SKIN, k:SKIN2, W:WHT, E:INK, C:CHEEK, P:'#1a1228', X:'#5a4570', F:'#ffb061'};
+  const a=[
+    "..................",
+    "....OOOOOO........",
+    "...OBBBBBBO.......",
+    "..OBBBBBBBBO......",
+    "..OBSSSSSSBO......",
+    ".OBSSWEWESSBO.....",
+    ".OBSSWEWESSBO.....",
+    ".OBkSSSSSSkBO.....",
+    ".OBSCSSSSCSBO.....",
+    "..OBSSSSSSBO......",
+    "...OBBBBBBO.OO....",
+    "..OBDDBBDDBOPPO...",
+    ".OBDDBBBBDDBPPPPO.",
+    ".OBDDBBBBDDBPPPPO.",
+    "..OO.OOOO.OO.PPPO.",
+    "..OO......OO.OOO..",
+    ".............F....",
+    "..................",
+  ];
+  return spr(a,pal,4);
+}
+
+/* chibi cheer (jump w/ arms up) */
+function chibiCheer(bodyCol, bodyDark){
+  const pal={O:INK, B:bodyCol, D:bodyDark, S:SKIN, k:SKIN2, W:WHT, E:INK, C:CHEEK};
+  const a=[
+    "..OO.........OO..",
+    ".OSO.OOOOOO.OSO..",
+    ".OSO.OBBBBBBOSO..",
+    ".OSOOBBBBBBBBOSO.",
+    ".OSOBSSSSSSSBOSO.",
+    "..OOBSSWEWWESSBOO",
+    "...OBSSWEWWESSBO.",
+    "...OBkSSSSSSkBO..",
+    "...OBSSCCCCSSBO..",
+    "....OBSSSSSSBO...",
+    ".....OBBBBBBO....",
+    "....OBDDBBDDBO...",
+    "...OBDDBBBBDDBO..",
+    "...OBDDBBBBDDBO..",
+    "....OO.OOOO.OO...",
+    "....OO......OO...",
+    ".................",
+  ];
+  return spr(a,pal,4);
+}
+
+/* bomb 16x16 — calm */
+function bomb(scale){
+  const pal={O:INK, B:'#3b2a55', D:'#1a1228', H:'#7a6494', W:WHT, E:INK, C:CHEEK, F:'#3a2a4d', s:'#ffe79e', S:'#ff7a3d'};
+  const a=[
+    "................",
+    "............F...",
+    "...........FF...",
+    "..........FsF...",
+    ".....OOOO.FFF...",
+    "....OBBBBOFF....",
+    "...OBHBBBBO.....",
+    "..OBBHBBBBBO....",
+    "..OBHBWEWEBBO...",
+    "..OBBBWEWEBBO...",
+    "..OBBCBBBBCBO...",
+    "..OBBBBBBBBBO...",
+    "...OBDDDDDBO....",
+    "....OBDDBO......",
+    ".....OOOO.......",
+    "................"
+  ];
+  return spr(a,pal,scale||4);
+}
+
+/* bomb pulsing red — 16x16 */
+function bombHot(scale){
+  const pal={O:INK, B:'#ff4a55', D:'#a82030', H:'#ff8a90', W:WHT, E:INK, C:'#ffe1ee', F:'#ff7a3d', s:'#ffe79e'};
+  const a=[
+    "................",
+    "............F...",
+    "...........FsF..",
+    "..........FsFs..",
+    ".....OOOO.FFF...",
+    "....OBBBBOFF....",
+    "...OBHBBBBO.....",
+    "..OBBHBBBBBO....",
+    "..OBHBWEWEBBO...",
+    "..OBBBWEWEBBO...",
+    "..OBBCBBBBCBO...",
+    "..OBBBBBBBBBO...",
+    "...OBDDDDDBO....",
+    "....OBDDBO......",
+    ".....OOOO.......",
+    "................"
+  ];
+  return spr(a,pal,scale||4);
+}
+
+/* destructible wood crate — 16x16 */
+function box(scale){
+  const pal={O:INK, B:'#d49758', D:'#a96e34', L:'#ecc28e', S:SKIN, W:WHT, E:INK, C:CHEEK};
+  const a=[
+    "OOOOOOOOOOOOOOOO",
+    "OLBBBBBBBBBBBBLO",
+    "OBLDDDDDDDDDDLBO",
+    "OBDLBBBBBBBBLDBO",
+    "OBDBLBWEWBLLBDBO",
+    "OBDBLBWEWBLLBDBO",
+    "OBDBL.CCCC.LBDBO",
+    "OBDBLBBBBBBLBDBO",
+    "OBDBLBBBBBBLBDBO",
+    "OBDBLBBBBBBLBDBO",
+    "OBDLBBBBBBBBLDBO",
+    "OBLDDDDDDDDDDLBO",
+    "OBLBBBBBBBBBBLBO",
+    "OLBBBBBBBBBBBBLO",
+    "OOOOOOOOOOOOOOOO",
+    "................"
+  ];
+  return spr(a,pal,scale||4);
+}
+
+/* indestructible pillar — 16x16 */
+function pillar(scale){
+  const pal={O:INK, B:'#9a96b5', D:'#5e5878', L:'#cfccdf', W:WHT, E:INK, M:'#3a3550'};
+  const a=[
+    "OOOOOOOOOOOOOOOO",
+    "OLLBBBBBBBBBBLLO",
+    "OLBLLBBBBBBLLBLO",
+    "OBLBBBLLLLBBBLBO",
+    "OBLBBLLBBLLBBLBO",
+    "OBLBBLBWEWBLLBLO",
+    "OBLBBLBWEWBLLBLO",
+    "OBLBBLLBBLLBBLBO",
+    "OBLBBLLBBLLBBLBO",
+    "OBLBBLLBBLLBBLBO",
+    "OBLBBBLLLLBBBLBO",
+    "OBDDBBBBBBBBDDBO",
+    "OBDDDDDDDDDDDDBO",
+    "OBDDDDMMMMDDDDBO",
+    "OOOOOOOOOOOOOOOO",
+    "................"
+  ];
+  return spr(a,pal,scale||4);
+}
+
+/* explosion pieces */
+function exCenter(scale){
+  const pal={F:'#ff7a3d', f:'#ffb061', y:'#ffe79e', W:'#fff8e7', O:INK};
+  const a=[
+    "....OOOOOO....",
+    "..OOFFFFFOO...",
+    ".OFffyyyfFO...",
+    ".OFfyyWyyfFO..",
+    "OFfyWWWWWyfFO.",
+    "OFyWWyWyWWyFO.",
+    "OFfyWWWWWyfFO.",
+    ".OFfyyWyyfFO..",
+    ".OFffyyyfFO...",
+    "..OOFFFFFOO...",
+    "....OOOOOO....",
+  ];
+  return spr(a,pal,scale||3);
+}
+function exArm(scale, dir){
+  // dir 'h' or 'v'
+  const pal={F:'#ff7a3d', f:'#ffb061', y:'#ffe79e', W:'#fff8e7', O:INK};
+  const a=[
+    "OOOOOOOOOOO",
+    "OFFFfffFFFO",
+    "OFffyyyffFO",
+    "OffyyWyyffO",
+    "OFffyyyffFO",
+    "OFFFfffFFFO",
+    "OOOOOOOOOOO"
+  ];
+  let svg = spr(a,pal,scale||3);
+  if(dir==='v'){
+    // wrap in rotated svg
+    svg = svg.replace('<svg ', '<svg style="transform:rotate(90deg)" ');
+  }
+  return svg;
+}
+
+/* heart 8x8 */
+function heart(empty, scale){
+  const pal={O:INK, R:empty?'#d8c8e0':'#ff6b9d', H:'#ffb3c8', D:empty?'#a89aab':'#c84277'};
+  const a=[
+    ".OO..OO.",
+    "ORHRORHR",
+    "ORRRRRRR",
+    "ORHRRRRR",
+    "ORRRRRRR",
+    ".ODDDDR.",
+    "..ODDR..",
+    "...OO..."
+  ];
+  return spr(a,pal,scale||3);
+}
+
+/* cloud */
+function cloud(big){
+  const pal={W:'#fff8e7', S:'#e6d5f3', O:INK};
+  const a = big ? [
+    "....OOOOO.......",
+    "..OOWWWWWOO.....",
+    ".OWWWWSWWWO.OO..",
+    "OWWWSWWWWWWOOWO.",
+    "OWWWWWWWSWWWWWO.",
+    "OWWSWWWWWWWWWO..",
+    ".OOOOOOOOOOOO...",
+  ] : [
+    "..OOOOO...",
+    ".OWWWWWO..",
+    "OWWWSWWWO.",
+    "OWWWWWWWO.",
+    ".OOOOOOO..",
+  ];
+  return spr(a,pal,4);
+}
+
+/* spark */
+function spark(){
+  const pal={Y:'#ffe79e', W:'#fff8e7', O:'#ff7a3d'};
+  const a=[
+    "...O...",
+    ".O.Y.O.",
+    "..YWY..",
+    "OYWWWYO",
+    "..YWY..",
+    ".O.Y.O.",
+    "...O..."
+  ];
+  return spr(a,pal,3);
+}
+
+/* crown 16x10 */
+function crown(){
+  const pal={O:INK, Y:'#ffd34d', y:'#ffe79e', R:'#ff6b9d', B:'#7ec4ff', L:'#ffb061'};
+  const a=[
+    "O........O........O",
+    "OY......OY......OY.",
+    "OY.O...OY.O....OY..",
+    "OYYYO.OYYYOO..OYYYO",
+    "OYRYYYYYBYYYYYYYLYO",
+    "OyYYYYYYYYYYYYYYYyO",
+    "OOOOOOOOOOOOOOOOOO."
+  ];
+  return spr(a,pal,4);
+}
+
+/* ============ POWER-UP icons (16x16) ============ */
+const POWERUPS = [
+  { id:'bomb',   nm:'+ BOMB',     ds:'CARRY ONE MORE BOMB',  pal:{O:INK,B:'#ff6b9d',D:'#c84277',H:'#ffa3c0',W:WHT,F:'#ff7a3d',s:'#ffe79e',C:'#ffe1ee'},
+    a:[
+      "................",
+      "................",
+      "..........F.....",
+      "..........FF....",
+      ".....OOOO.FsF...",
+      "....OBBBBOFFF...",
+      "...OBHBBBBO.....",
+      "..OBBHBBBBBO....",
+      "..OBHBWBWBBBO...",
+      "..OBBBWBWBBBO...",
+      "..OBBCBBBBCBO...",
+      "..OBBBBBBBBBO...",
+      "...OBDDDDDBO....",
+      "....OBDDBO......",
+      ".....OOOO.......",
+      "................"
+  ]},
+  { id:'fire', nm:'+ RANGE', ds:'BIGGER BLAST CROSS', pal:{O:INK,F:'#ff7a3d',f:'#ffb061',y:'#ffe79e',W:WHT,R:'#ff4a55'},
+    a:[
+      "................",
+      "........y.......",
+      ".......yWy......",
+      "......yfWfy.....",
+      ".....yfWFfWy....",
+      "....yfWFFFWfy...",
+      "...yWFFFFFFWy...",
+      "..yfFFRRRRFFfy..",
+      "..yFRRRRRRRRFy..",
+      "..yFRRRWWRRRFy..",
+      "...yFRRRRRRFy...",
+      "....yfFFFFfy....",
+      ".....yfFFfy.....",
+      "......yffy......",
+      ".......OO.......",
+      "................"
+    ]},
+  { id:'speed', nm:'+ SPEED', ds:'WALK FASTER', pal:{O:INK,B:'#ffe79e',D:'#d49758',W:WHT,L:'#ff6b9d',Y:'#ff7a3d',R:'#ff4a55'},
+    a:[
+      "................",
+      "................",
+      ".....OOOOO......",
+      "....OBBBBBO.....",
+      "...OBBWWWBBO....",
+      "..OLBWWLLWWBO...",
+      ".OLLBWWWWWWBLO..",
+      "OLLLBBBBBBBBLLO.",
+      "ODDDDDDDDDDDDDO.",
+      ".ODYYYYYYYYYDO..",
+      "..ODDDDDDDDDDO..",
+      "...OOOO..OOOO...",
+      "...O..R..R..O...",
+      "...O..R..R..O...",
+      "....OO....OO....",
+      "................"
+    ]},
+  { id:'remote', nm:'REMOTE', ds:'DETONATE ON COMMAND', pal:{O:INK,B:'#3b2a55',D:'#1a1228',G:'#7ec4ff',W:WHT,R:'#ff4a55',Y:'#ffe79e'},
+    a:[
+      "................",
+      "....OOOOOOOO....",
+      "...OBBBBBBBBO...",
+      "..OBGGGGGGGGBO..",
+      "..OBGYYYYYYGBO..",
+      "..OBGYY:):YGBO..",
+      "..OBGYYYYYYGBO..",
+      "..OBBBBBBBBBBO..",
+      "..OBROBROBROBO..",
+      "..OBBBBBBBBBBO..",
+      "..OBROBROBROBO..",
+      "..OBBBBBBBBBBO..",
+      "..OBBBOROBBBBO..",
+      "..OBBBBBBBBBBO..",
+      "...OOOOOOOOOO...",
+      "................"
+    ]},
+  { id:'kick', nm:'KICK BOMB', ds:'PUSH BOMBS WITH FOOT', pal:{O:INK,B:'#ff7a3d',D:'#a8431f',L:'#ffb061',W:WHT,P:'#3b2a55'},
+    a:[
+      "................",
+      "....OOOOOOOO....",
+      "...OBBLLLBBBO...",
+      "..OBLLBBBLLBBO..",
+      "..OBLBBBBBLBBO..",
+      "..OBLBBBBBLBBO..",
+      "..OBBBBBBBBBBO..",
+      ".OBBBBBBBBBBBBO.",
+      ".OBDDDDDDDDDDBO.",
+      ".OBDDDDDDDDDDBO.",
+      "..OOOOOOOOOOOOO.",
+      "..............O.",
+      "...OOO........O.",
+      "..OPPPO.......O.",
+      "...OOO........O.",
+      "................"
+    ]},
+  { id:'glove', nm:'THROW BOMB', ds:'PICK UP & THROW', pal:{O:INK,B:'#7ec4ff',D:'#3a7ec4',W:WHT,L:'#cfe9ff'},
+    a:[
+      "................",
+      "......OOOOO.....",
+      ".....OBLLBBO....",
+      "....OBBLLBBBO...",
+      "...OBLBLLBLBBO..",
+      "..OBLLBLLBLLBO..",
+      "..OBLLBBBBLLBO..",
+      "..OBLBLLLLBLBO..",
+      "..OBLLBBBBLLBO..",
+      "..OBLLLLLLLLBO..",
+      "...OBBBBBBBBO...",
+      "....OBDDDDBO....",
+      "....OBDDDDBO....",
+      ".....OBDDBO.....",
+      "......OOOO......",
+      "................"
+    ]},
+  { id:'ghost', nm:'GHOST', ds:'WALK THRU WALLS BRIEFLY', pal:{O:INK,W:WHT,L:'#e8e0f0',E:INK,C:'#ffb3c8'},
+    a:[
+      "................",
+      ".....OOOO.......",
+      "....OWWWWO......",
+      "...OWWWWWWO.....",
+      "..OWWWWWWWWO....",
+      "..OWWEWWEWWO....",
+      "..OWWWWWWWWO....",
+      "..OWWWLLWWWO....",
+      "..OWCWWWWCWO....",
+      "..OWWWWWWWWO....",
+      "..OWWWWWWWWO....",
+      "..OWWWWWWWWO....",
+      "..OWWLWWWLWO....",
+      "..OOOO.OOOO.....",
+      "................",
+      "................"
+    ]},
+  { id:'shield', nm:'SHIELD', ds:'SURVIVE 1 EXPLOSION', pal:{O:INK,B:'#7ec4ff',L:'#cfe9ff',D:'#3a7ec4',Y:'#ffe79e'},
+    a:[
+      "................",
+      "....OOOOOOOO....",
+      "...OBLLLLLLBO...",
+      "..OBLLLLLLLLBO..",
+      "..OBLLYLLYLLBO..",
+      "..OBLLLLLLLLBO..",
+      "..OBLLLYYLLLBO..",
+      "..OBLLLLLLLLBO..",
+      "..OBLLLLLLLLBO..",
+      "..ODBLLLLLLBDO..",
+      "...ODBLLLLBDO...",
+      "....ODBLLBDO....",
+      ".....ODBBDO.....",
+      "......ODDO......",
+      ".......OO.......",
+      "................"
+    ]},
+  { id:'ice', nm:'ICE BOMB', ds:'FREEZE ENEMIES', pal:{O:INK,B:'#cfe9ff',D:'#7ec4ff',L:WHT,F:'#3a7ec4',W:WHT,E:INK},
+    a:[
+      "................",
+      "............W...",
+      "...........WLW..",
+      "..........WLLW..",
+      ".....OOOO.WWW...",
+      "....OBBBBOWW....",
+      "...OBLBBBBO.....",
+      "..OBBLBBBBBO....",
+      "..OBLBWEWEBBO...",
+      "..OBBBWEWEBBO...",
+      "..OBLBBBBBLBO...",
+      "..OBBBBBBBBBO...",
+      "...OFDDDDDFO....",
+      "....OFDDFO......",
+      ".....OOOO.......",
+      "................"
+    ]},
+  { id:'magnet', nm:'MAGNET', ds:'PULLS POWER-UPS IN', pal:{O:INK,R:'#ff4a55',B:'#3a3550',W:WHT,L:'#ffb3c8'},
+    a:[
+      "................",
+      ".OOOOO....OOOOO.",
+      "OBRRRBO..OBRRRBO",
+      "OBRLRBO..OBRLRBO",
+      "OBRRRBO..OBRRRBO",
+      "OBRRRBO..OBRRRBO",
+      "OBBBBBO..OBBBBBO",
+      "OBWWWBO..OBWWWBO",
+      "OBWWWBO..OBWWWBO",
+      "OBWWWBO..OBWWWBO",
+      "OBWWWBO..OBWWWBO",
+      "OBBBBBO..OBBBBBO",
+      ".OOOOO....OOOOO.",
+      "................",
+      "...wWww...wwWw..",
+      "................"
+    ]},
+  { id:'slow', nm:'SLOW-MO', ds:'SLOWS OTHERS', pal:{O:INK,B:'#fff8e7',D:'#d2b3ee',H:'#7d6996',R:'#ff4a55',W:WHT},
+    a:[
+      "................",
+      "......OOOO......",
+      "....OOBBBBOO....",
+      "...OBBBBBBBBO...",
+      "..OBBWWWWWWBBO..",
+      "..OBWWWHWWWWBO..",
+      "..OBWWWHRWWWBO..",
+      "..OBWWWHHHWWBO..",
+      "..OBWWWWWWHWBO..",
+      "..OBWWWWWWWWBO..",
+      "..OBBWWWWWWBBO..",
+      "...OBBBBBBBBO...",
+      "....OOBBBBOO....",
+      "......OOOO......",
+      "................",
+      "................"
+    ]},
+  { id:'super', nm:'SUPER BOMB', ds:'BLAST TO THE WALL', pal:{O:INK,B:'#ffe79e',D:'#d4a224',Y:'#ffe79e',R:'#ff4a55',W:WHT,P:'#3b2a55',F:'#ff7a3d'},
+    a:[
+      "................",
+      "..........F.....",
+      ".........FsF....",
+      "........FsFs....",
+      ".....OOOO.FFF...",
+      "....ORRRROFF....",
+      "...ORYRRRRO.....",
+      "..ORRYRRRRRO....",
+      "..ORYRWBWBRRO...",
+      "..ORRRWBWBYRO...",
+      "..ORRYRRRRYRO...",
+      "..ORRRRRRRRRO...",
+      "...OPDDDDPO.....",
+      "....OPDDPO......",
+      ".....OOOO.......",
+      "..............s."
+    ]},
+];
+
+/* small icons (32x32 effective via 8x8 + scale 4) */
+function ico(kind){
+  const pal={O:INK, P:'#ff6b9d', Y:'#ffe79e', G:'#9fe0b8', B:'#7ec4ff', W:WHT, D:'#a82030', R:'#ff4a55', I:'#3a3550'};
+  const map={
+    play:[
+      "..OO....",
+      "..OPO...",
+      "..OPPO..",
+      "..OPPPO.",
+      "..OPPO..",
+      "..OPO...",
+      "..OO....",
+      "........"
+    ],
+    mp:[
+      "..OO.OO.",
+      ".OBBOPPO",
+      ".OBBOPPO",
+      "OBOOOOPO",
+      "OBBOOPPO",
+      ".OBBPPPO",
+      "..OOOOO.",
+      "........"
+    ],
+    cog:[
+      "..O.OO..",
+      ".OWOOWO.",
+      "OWWGGGWO",
+      "O.GIIG.O",
+      "O.GIIG.O",
+      "OWWGGGWO",
+      ".OWOOWO.",
+      "..O.OO.."
+    ],
+    cup:[
+      "OOOOOOOO",
+      "OYYYYYYO",
+      "OYIYYIYO",
+      "OYIYYIYO",
+      "OYYYYYYO",
+      ".OYYYYO.",
+      "..OYYO..",
+      ".OOOOOO."
+    ],
+    back:[
+      "...OO...",
+      "..OOO...",
+      ".OPOOOOO",
+      "OPPPPPPP",
+      ".OPOOOOO",
+      "..OOO...",
+      "...OO...",
+      "........"
+    ],
+  };
+  return spr(map[kind], pal, 4);
+}
+
+/* logo bomb large 24x24 */
+function logoBomb(){
+  const pal={O:INK, B:'#3b2a55', D:'#1a1228', H:'#7a6494', W:WHT, E:INK, C:CHEEK, F:'#ff7a3d', s:'#ffe79e', y:'#ffe79e'};
+  const a=[
+    "........................",
+    "................F.......",
+    "...............FsF......",
+    "..............FsFs......",
+    ".............FFFF.......",
+    "............FF..........",
+    ".......OOOOOO...........",
+    ".....OOBBBBBBOO.........",
+    "....OBHBBBBBBBBO........",
+    "...OBBHBBBBBBBBBO.......",
+    "...OBHBWWEEWWBBBBO......",
+    "..OBBBBWWEEWWBBBBBO.....",
+    "..OBBBBBBBBBBBBBBBO.....",
+    "..OBBCCBBBBBBBBCCBO.....",
+    "..OBBCCBBBBBBBBCCBO.....",
+    "..OBBBBBBBBBBBBBBBO.....",
+    "..OBHBBBBBBBBBBBHBO.....",
+    "...OBBBBBBBBBBBBBO......",
+    "....OBDDDDDDDDDBO.......",
+    ".....OBDDDDDDDBO........",
+    "......OOOOOOOOO.........",
+    "........................",
+    "........................",
+    "........................"
+  ];
+  return spr(a,pal,5);
+}
+
+/* ====== INSERT SPRITES INTO MARKED ELEMENTS ====== */
+const MAP = {
+  'cloud': cloud(false),
+  'cloud2': cloud(true),
+  'bomb-big': logoBomb(),
+  'spark': spark(),
+  'ico-play': ico('play'),
+  'ico-mp':   ico('mp'),
+  'ico-cog':  ico('cog'),
+  'ico-cup':  ico('cup'),
+  'ico-back': ico('back'),
+  'chibi-cyan-wave':   chibiWave('#6dd5e8','#3aa3bf'),
+  'chibi-pink-throw':  chibiThrow('#ff9ec7','#c8567f'),
+  'chibi-yellow-jump': chibiCheer('#f5d958','#b89b1f'),
+  'chibi-pink-cheer':  chibiCheer('#ff9ec7','#c8567f'),
+  'chibi-pink-mini':   chibiMini('#ff9ec7','#c8567f'),
+  'chibi-cyan-mini':   chibiMini('#6dd5e8','#3aa3bf'),
+  'chibi-yellow-mini': chibiMini('#f5d958','#b89b1f'),
+  'chibi-green-mini':  chibiMini('#7ed98a','#3a9447'),
+  'crown':            crown(),
+};
+
+document.querySelectorAll('[data-spr]').forEach(el=>{
+  const k = el.getAttribute('data-spr');
+  if(MAP[k]) el.innerHTML = MAP[k];
+});
+
+/* ----- LOBBY: build mini grid previews ----- */
+function buildMini(el, w, h){
+  el.style.gridTemplateColumns = `repeat(${w}, 6px)`;
+  el.style.gridTemplateRows    = `repeat(${h}, 6px)`;
+  el.innerHTML = '';
+  const cols = ['#9fe0b8','#cfe9ff','#ffd1a6'];
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const i = document.createElement('i');
+      i.style.width='6px'; i.style.height='6px';
+      // border row/col = pillar
+      const isBorder = x===0||y===0||x===w-1||y===h-1;
+      const isPillar = x%2===0 && y%2===0;
+      if(isBorder || isPillar){
+        i.style.background = '#7d6996';
+      } else if((x+y)%5===0 || (x*7+y*3)%6===0){
+        // box
+        i.style.background = '#d49758';
+      } else {
+        i.style.background = (x+y)%2 ? '#d8eecf' : '#c8e3bd';
+      }
+      // 4 starting corners = colored pixels
+      if((x===1&&y===1)) i.style.background='#6dd5e8';
+      if((x===w-2&&y===1)) i.style.background='#e878c9';
+      if((x===1&&y===h-2)) i.style.background='#f5d958';
+      if((x===w-2&&y===h-2)) i.style.background='#7ed98a';
+      el.appendChild(i);
+    }
+  }
+}
+document.querySelectorAll('[data-mini]').forEach(el=>{
+  const [w,h] = el.getAttribute('data-mini').split('x').map(Number);
+  buildMini(el,w,h);
+});
+
+/* grid card selection */
+document.querySelectorAll('#grids .gcard').forEach(c=>{
+  c.addEventListener('click',()=>{
+    document.querySelectorAll('#grids .gcard').forEach(x=>x.classList.remove('sel'));
+    c.classList.add('sel');
+  });
+});
+
+/* segment groups */
+document.querySelectorAll('.seg-row, .pslot .seg').forEach(g=>{
+  g.querySelectorAll('span').forEach(s=>{
+    s.addEventListener('click',()=>{
+      g.querySelectorAll('span').forEach(x=>x.classList.remove('on'));
+      s.classList.add('on');
+    });
+  });
+});
+
+/* ----- LOBBY: build 8 player slots ----- */
+const PLAYERS = [
+  {col:'#6dd5e8', dk:'#3aa3bf', nm:'BUBBLE',  ctrl:'WASD + SPACE',     mode:'human'},
+  {col:'#e878c9', dk:'#a83fa0', nm:'MOCHI',   ctrl:'ARROWS + RSHIFT',  mode:'human'},
+  {col:'#f5d958', dk:'#b89b1f', nm:'BISCUIT', ctrl:'IJKL + N',         mode:'human'},
+  {col:'#7ed98a', dk:'#3a9447', nm:'PICKLE',  ctrl:'NUMPAD 8456 + 0',  mode:'human'},
+  {col:'#ff9b6e', dk:'#c46434', nm:'YAM',     ctrl:'GAMEPAD 1',        mode:'cpu'},
+  {col:'#b58ee8', dk:'#6b4ec1', nm:'CPU LV3', ctrl:'AI · SMART',       mode:'cpu'},
+  {col:'#ff9ec7', dk:'#c8567f', nm:'—',       ctrl:'EMPTY SLOT',       mode:'off'},
+  {col:'#f5ece0', dk:'#a89e8e', nm:'—',       ctrl:'EMPTY SLOT',       mode:'off'},
+];
+const pgrid = document.getElementById('pgrid');
+PLAYERS.forEach((p,i)=>{
+  const cls = p.mode==='off'?'off':(p.mode==='cpu'?'cpu':'');
+  const slot = document.createElement('div');
+  slot.className = 'pslot '+cls;
+  slot.innerHTML = `
+    <div class="top"><span>P${i+1}</span><span>${p.mode.toUpperCase()}</span></div>
+    <div class="av"><span>${chibi(p.col,p.dk,{scale:3})}</span>
+      <input class="nm" value="${p.nm}">
+    </div>
+    <div class="ctrl">${p.ctrl}</div>
+    <div class="seg">
+      <span class="${p.mode==='human'?'on':''}">HUMAN</span>
+      <span class="${p.mode==='cpu'?'on':''}">CPU</span>
+      <span class="${p.mode==='off'?'on':''}">OFF</span>
+    </div>
+  `;
+  pgrid.appendChild(slot);
+});
+
+/* ----- GAMEPLAY board ----- */
+const W=15, H=13;
+// describe layout: '.' floor, '#' pillar, 'B' box, 'b' bomb, 'h' hot bomb, 'X' explosion center, 'x' explosion arm h, 'y' explosion arm v
+// Power-up letters a-l for the 12 power-ups for visual reference (we won't show all on field — we show some, plus the row below)
+const layout = [
+  "###############",
+  "#1...B....B..2#",
+  "#.#.#B#B#.#B#.#",
+  "#.B.....B...B.#",
+  "#.#.#.#a#.#.#.#",
+  "#.B.b.B.B.f.B.#",
+  "#...x.X.x.....#",
+  "#.B.h.B.B.B.B.#",
+  "#.#.#B#g#.#.#.#",
+  "#.B.....e...B.#",
+  "#.#B#.#.#.#.#.#",
+  "#3..B.B.....B4#",
+  "###############"
+];
+const board = document.getElementById('board');
+function tile(){
+  const t = document.createElement('div');
+  t.className='tile';
+  return t;
+}
+const playerColors=[
+  ['#6dd5e8','#3aa3bf'], // 1
+  ['#e878c9','#a83fa0'], // 2
+  ['#f5d958','#b89b1f'], // 3
+  ['#7ed98a','#3a9447'], // 4
+];
+
+for(let y=0;y<H;y++){
+  for(let x=0;x<W;x++){
+    const t = tile();
+    const c = layout[y][x];
+    // Floor checker
+    const checker = (x+y)%2;
+    if('123456789'.indexOf(c)>=0 || c==='.' || 'abcdefghijkl'.indexOf(c)>=0 || c==='b' || c==='h' || c==='X' || c==='x' || c==='y'){
+      t.classList.add('floor');
+      if(checker) t.classList.add('b');
+    }
+    if(c==='#') t.innerHTML = pillar(2);
+    if(c==='B') t.innerHTML = box(2);
+    if(c==='b'){ t.innerHTML = bomb(2); t.firstChild.classList?.add?.('breathe'); /* svg can't get class easily; wrap */
+      const w=document.createElement('div'); w.className='breathe'; w.innerHTML=bomb(2); t.innerHTML=''; t.appendChild(w);
+    }
+    if(c==='h'){
+      const w=document.createElement('div'); w.className='pulse-fast'; w.innerHTML=bombHot(2); t.appendChild(w);
+    }
+    if(c==='X'){ const w=document.createElement('div'); w.className='pulse-fast'; w.innerHTML=exCenter(3); t.appendChild(w); }
+    if(c==='x'){ const w=document.createElement('div'); w.className='pulse-fast'; w.innerHTML=exArm(3,'h'); t.appendChild(w); }
+    if(c==='y'){ const w=document.createElement('div'); w.className='pulse-fast'; w.innerHTML=exArm(3,'v'); t.appendChild(w); }
+
+    // chibi players in numbered cells
+    const pnum = '1234'.indexOf(c);
+    if(pnum>=0){
+      const w=document.createElement('div');
+      w.className='breathe';
+      w.style.transform='scale(.7)';
+      w.style.position='absolute'; w.style.inset='0';
+      w.innerHTML = chibi(playerColors[pnum][0], playerColors[pnum][1], {scale:2});
+      t.appendChild(w);
+    }
+
+    // sample power-ups visible on field (with tooltips)
+    const pumap = { a:'bomb', f:'fire', g:'glove', e:'speed' };
+    if(pumap[c]){
+      const pu = POWERUPS.find(p=>p.id===pumap[c]);
+      if(pu){
+        const w=document.createElement('div');
+        w.className='pulse-slow';
+        w.style.position='absolute'; w.style.inset='0'; w.style.display='flex';
+        w.style.alignItems='center'; w.style.justifyContent='center';
+        w.innerHTML = spr(pu.a, pu.pal, 2);
+        t.appendChild(w);
+        const lbl = document.createElement('div');
+        lbl.className='label';
+        lbl.textContent = pu.nm;
+        t.appendChild(lbl);
+      }
+    }
+
+    board.appendChild(t);
+  }
+}
+
+/* All 12 power-ups in the row below the board */
+const pupGrid = document.getElementById('pupGrid');
+POWERUPS.forEach(p=>{
+  const cell = document.createElement('div');
+  cell.className='pup-cell';
+  cell.innerHTML = `<span class="ico">${spr(p.a,p.pal,1.5)}</span>
+    <span><span class="nm">${p.nm}</span><span class="ds">${p.ds}</span></span>`;
+  pupGrid.appendChild(cell);
+});
+
+/* HUD player cards */
+const hudPlayers = [
+  {col:'#6dd5e8', dk:'#3aa3bf', nm:'BUBBLE',  hp:3, sc:380, pups:['bomb','fire','speed'], dead:false, badge:''},
+  {col:'#e878c9', dk:'#a83fa0', nm:'MOCHI',   hp:2, sc:1200, pups:['bomb','bomb','fire','glove','shield'], dead:false, badge:'LEAD'},
+  {col:'#f5d958', dk:'#b89b1f', nm:'BISCUIT', hp:1, sc:620, pups:['speed','remote'], dead:false, badge:''},
+  {col:'#7ed98a', dk:'#3a9447', nm:'PICKLE',  hp:0, sc:240, pups:['kick'], dead:true, badge:'OUT'},
+];
+function hudCard(p){
+  const heartHTML = [0,1,2].map(i=> heart(i>=p.hp, 3)).join('');
+  const pups = p.pups.map(id=>{
+    const pu = POWERUPS.find(x=>x.id===id);
+    return `<span class="pup">${pu?spr(pu.a,pu.pal,1):''}</span>`;
+  }).join('');
+  const badge = p.badge ? `<span class="badge">${p.badge}</span>` : '';
+  return `<div class="pcard ${p.dead?'dead':''}">
+    ${badge}
+    <div class="row1">
+      <span>${chibi(p.col,p.dk,{scale:2})}</span>
+      <span class="nm">${p.nm}</span>
+      <span class="sc">${p.sc.toLocaleString()}</span>
+    </div>
+    <div class="hearts">${heartHTML}</div>
+    <div class="pups">${pups}</div>
+  </div>`;
+}
+document.getElementById('leftHud').innerHTML  = hudPlayers.slice(0,2).map(hudCard).join('');
+document.getElementById('rightHud').innerHTML = hudPlayers.slice(2,4).map(hudCard).join('');
+
+/* scoreboard mini icons */
+function pupRow(ids){return ids.map(id=>{
+  const pu = POWERUPS.find(x=>x.id===id);
+  return `<span style="margin-right:3px">${spr(pu.a,pu.pal,1)}</span>`;
+}).join('');}
+document.getElementById('sbpu1').innerHTML = pupRow(['bomb','bomb','fire','glove','shield']);
+document.getElementById('sbpu2').innerHTML = pupRow(['bomb','fire','speed']);
+document.getElementById('sbpu3').innerHTML = pupRow(['speed','remote']);
+document.getElementById('sbpu4').innerHTML = pupRow(['kick']);
+
+/* confetti */
+const conf = document.getElementById('conf');
+const palette=['#ff6b9d','#ffe79e','#9fe0b8','#7ec4ff','#d2b3ee','#ff7a3d'];
+for(let i=0;i<60;i++){
+  const c=document.createElement('div');
+  c.className='c';
+  c.style.left = Math.random()*100+'%';
+  c.style.background = palette[i%palette.length];
+  c.style.animationDelay = (Math.random()*4)+'s';
+  c.style.animationDuration = (3 + Math.random()*3)+'s';
+  if(i%3===0) c.style.borderRadius='50%';
+  if(i%4===0) { c.style.width='6px'; c.style.height='14px'; }
+  conf.appendChild(c);
+}
+
+/* timer count down (visual only) */
+let secs = 134;
+setInterval(()=>{
+  secs = Math.max(0, secs-1);
+  const m = Math.floor(secs/60), s=String(secs%60).padStart(2,'0');
+  document.getElementById('timer').textContent = `${m}:${s}`;
+},1000);
+
+</script>
+</body>
+</html>
