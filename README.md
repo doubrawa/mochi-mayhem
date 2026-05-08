@@ -7,12 +7,17 @@ A cute pixel-art Bomberman clone for the browser. Pure HTML/CSS/JS — no build 
 ES modules require a server (`file://` won't work).
 
 ```sh
+# Option A — built-in PowerShell server (Windows, no install needed):
+powershell -ExecutionPolicy Bypass -File tools\serve.ps1
+
+# Option B — if you have Node.js:
 npx serve .
-# or
+
+# Option C — if you have Python:
 python -m http.server 8080
 ```
 
-Then open http://localhost:8080/
+Then open http://localhost:8765/ (PowerShell) or whichever port the tool reports.
 
 ## Roadmap
 
