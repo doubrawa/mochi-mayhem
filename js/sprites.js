@@ -1,708 +1,493 @@
-/* =====================================================
-   Pixel-SVG sprite library.
-   Sprites are arrays of strings (one char per pixel).
-   '.' or ' ' = transparent.  Other chars look up palette.
-   ===================================================== */
+/* ======================================================
+   BOOM BUDDIES — sprite library (v2)
+   All sprites are drawn pixel-by-pixel into <canvas>
+   elements at base resolution. CSS scales them up with
+   image-rendering: pixelated for crisp pixel-art output.
+   ====================================================== */
 
-export const INK   = '#2a2238';
-export const INK2  = '#4a3a5e';
-export const WHT   = '#fff8e7';
-export const BLK   = '#1a1228';
-export const SKIN  = '#ffd9c0';
-export const SKIN2 = '#ffb494';
-export const CHEEK = '#ff9bbb';
+export const INK = '#2a1f3d';
+export const INK2 = '#4a3a5e';
+export const WHT = '#fff8e7';
+export const CHK = '#ff7aa3';
 
-export const PLAYER_COLORS = [
-  { col:'#6dd5e8', dk:'#3aa3bf' }, // cyan
-  { col:'#e878c9', dk:'#a83fa0' }, // magenta
-  { col:'#f5d958', dk:'#b89b1f' }, // yellow
-  { col:'#7ed98a', dk:'#3a9447' }, // green
-  { col:'#ff9b6e', dk:'#c46434' }, // orange
-  { col:'#b58ee8', dk:'#6b4ec1' }, // purple
-  { col:'#ff9ec7', dk:'#c8567f' }, // pink
-  { col:'#f5ece0', dk:'#a89e8e' }, // cream
-];
-
-export function spr(grid, pal, scale){
-  scale = scale || 4;
-  const h = grid.length, w = grid[0].length;
-  let rects = '';
-  for(let y=0; y<h; y++){
-    let x=0;
-    while(x<w){
-      const c = grid[y][x];
-      if(c==='.' || c===' '){ x++; continue; }
-      let x2 = x+1;
-      while(x2<w && grid[y][x2]===c) x2++;
-      const color = pal[c] || c;
-      rects += `<rect x="${x}" y="${y}" width="${x2-x}" height="1" fill="${color}"/>`;
-      x = x2;
+/* ---------- low-level pixel helpers ---------- */
+function px(ctx, x, y, c){ if(!c) return; ctx.fillStyle = c; ctx.fillRect(x, y, 1, 1); }
+function rect(ctx, x, y, w, h, c){ if(!c) return; ctx.fillStyle = c; ctx.fillRect(x, y, w, h); }
+function fillEll(ctx, cx, cy, rx, ry, c){
+  for(let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
+    for(let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++){
+      const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
+      if(dx*dx + dy*dy <= 1) px(ctx, x, y, c);
     }
+}
+function strokeEll(ctx, cx, cy, rx, ry, c){
+  const ins = {};
+  for(let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
+    for(let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++){
+      const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
+      if(dx*dx + dy*dy <= 1) ins[x + ',' + y] = 1;
+    }
+  for(const k in ins){
+    const [a, b] = k.split(',').map(Number);
+    if(!ins[(a-1)+','+b] || !ins[(a+1)+','+b] || !ins[a+','+(b-1)] || !ins[a+','+(b+1)]) px(ctx, a, b, c);
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w*scale}" height="${h*scale}" shape-rendering="crispEdges">${rects}</svg>`;
+}
+function strokeRect(ctx, x, y, w, h, c){
+  for(let i = x; i < x + w; i++){ px(ctx, i, y, c); px(ctx, i, y+h-1, c); }
+  for(let i = y; i < y + h; i++){ px(ctx, x, i, c); px(ctx, x+w-1, i, c); }
 }
 
-/* ----- chibi character (16x16) ----- */
-export function chibi(bodyCol, bodyDark, opts){
-  opts = opts || {};
-  const pal = {O:INK, B:bodyCol, D:bodyDark, S:SKIN, k:SKIN2, W:WHT, E:INK, C:CHEEK, H:'#3a2a4d'};
-  const a = [
-    "................",
-    ".....OOOOOO.....",
-    "....OBBBBBBO....",
-    "...OBBBBBBBBO...",
-    "...OBSSSSSSBO...",
-    "..OBSSWEWESSBO..",
-    "..OBSSWEWESSBO..",
-    "..OBkSSSSSSkBO..",
-    "..OBSCSSSSCSBO..",
-    "...OBSSSSSSBO...",
-    "....OBBBBBBO....",
-    "...OBDDBBDDBO...",
-    "..OBDDBBBBDDBO..",
-    "..OBDDBBBBDDBO..",
-    "...OO.OOOO.OO...",
-    "...OO......OO..."
-  ];
-  return spr(a, pal, opts.scale || 4);
-}
+/* ---------- 8 distinct characters ---------- */
+export const CHARS = {
+  bubble:  { body:'#6dd5e8', dark:'#3aa3bf', acc:'ears',   eye:'round',   mouth:'smile'  },
+  mochi:   { body:'#ff9ec7', dark:'#c8567f', acc:'bow',    eye:'sparkle', mouth:'uwu'    },
+  biscuit: { body:'#f5d958', dark:'#b89b1f', acc:'chef',   eye:'happy',   mouth:'grin'   },
+  pickle:  { body:'#7ed98a', dark:'#3a9447', acc:'leaf',   eye:'dot',     mouth:'tongue' },
+  yam:     { body:'#ff9b6e', dark:'#c46434', acc:'avi',    eye:'goggles', mouth:'smile'  },
+  plum:    { body:'#b58ee8', dark:'#6b4ec1', acc:'wiz',    eye:'sleepy',  mouth:'oh'     },
+  peach:   { body:'#ffb3c8', dark:'#c87890', acc:'flower', eye:'star',    mouth:'smile'  },
+  mallow:  { body:'#f5ece0', dark:'#a89e8e', acc:'beanie', eye:'snore',   mouth:'zz'     },
+};
 
-/* mini 8x8 chibi for HUD/scoreboard */
-export function chibiMini(bodyCol, bodyDark){
-  const pal={O:INK, B:bodyCol, D:bodyDark, S:SKIN, E:INK, C:CHEEK, W:WHT};
-  const a=[
-    "..OOOO..",
-    ".OBBBBO.",
-    ".OSSSSO.",
-    "OSEWWEEO",
-    "OSCSSCSO",
-    ".OBBBBO.",
-    "OBDBBDBO",
-    ".O.OO.O."
-  ];
-  return spr(a,pal,3);
-}
+export const CHAR_IDS = Object.keys(CHARS);
 
-/* chibi waving */
-export function chibiWave(bodyCol, bodyDark){
-  const pal={O:INK, B:bodyCol, D:bodyDark, S:SKIN, k:SKIN2, W:WHT, E:INK, C:CHEEK};
-  const a=[
-    "..................",
-    ".....OOOOOO.......",
-    "....OBBBBBBO......",
-    "...OBBBBBBBBO.....",
-    "...OBSSSSSSBO.....",
-    "..OBSSWEWESSBO..OO",
-    "..OBSSWEWESSBO.OSO",
-    "..OBkSSSSSSkBO.OSO",
-    "..OBSCSSSSCSBO.OSO",
-    "...OBSSSSSSBO.OBBO",
-    "....OBBBBBBO.OBBO.",
-    "...OBDDBBDDBOBBBO.",
-    "..OBDDBBBBDDBBBO..",
-    "..OBDDBBBBDDBBO...",
-    "...OO.OOOO.OO.....",
-    "...OO......OO.....",
-    "..................",
-    ".................."
-  ];
-  return spr(a,pal,4);
-}
-
-/* chibi throwing bomb */
-export function chibiThrow(bodyCol, bodyDark){
-  const pal={O:INK, B:bodyCol, D:bodyDark, S:SKIN, k:SKIN2, W:WHT, E:INK, C:CHEEK, P:'#1a1228', X:'#5a4570', F:'#ffb061'};
-  const a=[
-    "..................",
-    "....OOOOOO........",
-    "...OBBBBBBO.......",
-    "..OBBBBBBBBO......",
-    "..OBSSSSSSBO......",
-    ".OBSSWEWESSBO.....",
-    ".OBSSWEWESSBO.....",
-    ".OBkSSSSSSkBO.....",
-    ".OBSCSSSSCSBO.....",
-    "..OBSSSSSSBO......",
-    "...OBBBBBBO.OO....",
-    "..OBDDBBDDBOPPO...",
-    ".OBDDBBBBDDBPPPPO.",
-    ".OBDDBBBBDDBPPPPO.",
-    "..OO.OOOO.OO.PPPO.",
-    "..OO......OO.OOO..",
-    ".............F....",
-    ".................."
-  ];
-  return spr(a,pal,4);
-}
-
-/* chibi cheer (jump w/ arms up) */
-export function chibiCheer(bodyCol, bodyDark){
-  const pal={O:INK, B:bodyCol, D:bodyDark, S:SKIN, k:SKIN2, W:WHT, E:INK, C:CHEEK};
-  const a=[
-    "..OO.........OO..",
-    ".OSO.OOOOOO.OSO..",
-    ".OSO.OBBBBBBOSO..",
-    ".OSOOBBBBBBBBOSO.",
-    ".OSOBSSSSSSSBOSO.",
-    "..OOBSSWEWWESSBOO",
-    "...OBSSWEWWESSBO.",
-    "...OBkSSSSSSkBO..",
-    "...OBSSCCCCSSBO..",
-    "....OBSSSSSSBO...",
-    ".....OBBBBBBO....",
-    "....OBDDBBDDBO...",
-    "...OBDDBBBBDDBO..",
-    "...OBDDBBBBDDBO..",
-    "....OO.OOOO.OO...",
-    "....OO......OO...",
-    "................."
-  ];
-  return spr(a,pal,4);
-}
-
-/* bomb 16x16 — calm */
-export function bomb(scale){
-  const pal={O:INK, B:'#3b2a55', D:'#1a1228', H:'#7a6494', W:WHT, E:INK, C:CHEEK, F:'#3a2a4d', s:'#ffe79e', S:'#ff7a3d'};
-  const a=[
-    "................",
-    "............F...",
-    "...........FF...",
-    "..........FsF...",
-    ".....OOOO.FFF...",
-    "....OBBBBOFF....",
-    "...OBHBBBBO.....",
-    "..OBBHBBBBBO....",
-    "..OBHBWEWEBBO...",
-    "..OBBBWEWEBBO...",
-    "..OBBCBBBBCBO...",
-    "..OBBBBBBBBBO...",
-    "...OBDDDDDBO....",
-    "....OBDDBO......",
-    ".....OOOO.......",
-    "................"
-  ];
-  return spr(a,pal,scale||4);
-}
-
-/* bomb pulsing red */
-export function bombHot(scale){
-  const pal={O:INK, B:'#ff4a55', D:'#a82030', H:'#ff8a90', W:WHT, E:INK, C:'#ffe1ee', F:'#ff7a3d', s:'#ffe79e'};
-  const a=[
-    "................",
-    "............F...",
-    "...........FsF..",
-    "..........FsFs..",
-    ".....OOOO.FFF...",
-    "....OBBBBOFF....",
-    "...OBHBBBBO.....",
-    "..OBBHBBBBBO....",
-    "..OBHBWEWEBBO...",
-    "..OBBBWEWEBBO...",
-    "..OBBCBBBBCBO...",
-    "..OBBBBBBBBBO...",
-    "...OBDDDDDBO....",
-    "....OBDDBO......",
-    ".....OOOO.......",
-    "................"
-  ];
-  return spr(a,pal,scale||4);
-}
-
-/* destructible wood crate */
-export function box(scale){
-  const pal={O:INK, B:'#d49758', D:'#a96e34', L:'#ecc28e', S:SKIN, W:WHT, E:INK, C:CHEEK};
-  const a=[
-    "OOOOOOOOOOOOOOOO",
-    "OLBBBBBBBBBBBBLO",
-    "OBLDDDDDDDDDDLBO",
-    "OBDLBBBBBBBBLDBO",
-    "OBDBLBWEWBLLBDBO",
-    "OBDBLBWEWBLLBDBO",
-    "OBDBL.CCCC.LBDBO",
-    "OBDBLBBBBBBLBDBO",
-    "OBDBLBBBBBBLBDBO",
-    "OBDBLBBBBBBLBDBO",
-    "OBDLBBBBBBBBLDBO",
-    "OBLDDDDDDDDDDLBO",
-    "OBLBBBBBBBBBBLBO",
-    "OLBBBBBBBBBBBBLO",
-    "OOOOOOOOOOOOOOOO",
-    "................"
-  ];
-  return spr(a,pal,scale||4);
-}
-
-/* indestructible pillar */
-export function pillar(scale){
-  const pal={O:INK, B:'#9a96b5', D:'#5e5878', L:'#cfccdf', W:WHT, E:INK, M:'#3a3550'};
-  const a=[
-    "OOOOOOOOOOOOOOOO",
-    "OLLBBBBBBBBBBLLO",
-    "OLBLLBBBBBBLLBLO",
-    "OBLBBBLLLLBBBLBO",
-    "OBLBBLLBBLLBBLBO",
-    "OBLBBLBWEWBLLBLO",
-    "OBLBBLBWEWBLLBLO",
-    "OBLBBLLBBLLBBLBO",
-    "OBLBBLLBBLLBBLBO",
-    "OBLBBLLBBLLBBLBO",
-    "OBLBBBLLLLBBBLBO",
-    "OBDDBBBBBBBBDDBO",
-    "OBDDDDDDDDDDDDBO",
-    "OBDDDDMMMMDDDDBO",
-    "OOOOOOOOOOOOOOOO",
-    "................"
-  ];
-  return spr(a,pal,scale||4);
-}
-
-/* explosion pieces */
-export function exCenter(scale){
-  const pal={F:'#ff7a3d', f:'#ffb061', y:'#ffe79e', W:'#fff8e7', O:INK};
-  const a=[
-    "....OOOOOO....",
-    "..OOFFFFFOO...",
-    ".OFffyyyfFO...",
-    ".OFfyyWyyfFO..",
-    "OFfyWWWWWyfFO.",
-    "OFyWWyWyWWyFO.",
-    "OFfyWWWWWyfFO.",
-    ".OFfyyWyyfFO..",
-    ".OFffyyyfFO...",
-    "..OOFFFFFOO...",
-    "....OOOOOO....",
-  ];
-  return spr(a,pal,scale||3);
-}
-export function exArm(scale, dir){
-  const pal={F:'#ff7a3d', f:'#ffb061', y:'#ffe79e', W:'#fff8e7', O:INK};
-  const a=[
-    "OOOOOOOOOOO",
-    "OFFFfffFFFO",
-    "OFffyyyffFO",
-    "OffyyWyyffO",
-    "OFffyyyffFO",
-    "OFFFfffFFFO",
-    "OOOOOOOOOOO"
-  ];
-  let svg = spr(a,pal,scale||3);
-  if(dir==='v'){
-    svg = svg.replace('<svg ', '<svg style="transform:rotate(90deg)" ');
+function drawBase(c, body, dark){
+  fillEll(c, 16, 14, 11, 10, body);
+  for(let yy = 20; yy < 24; yy++) for(let xx = 6; xx < 26; xx++){
+    const dx = (xx + 0.5 - 16) / 11, dy = (yy + 0.5 - 14) / 10;
+    if(dx*dx + dy*dy <= 1) px(c, xx, yy, dark);
   }
-  return svg;
+  strokeEll(c, 16, 14, 11, 10, INK);
+  px(c,8,17,CHK); px(c,9,17,CHK); px(c,23,17,CHK); px(c,24,17,CHK);
+  rect(c, 12, 23, 8, 4, body); rect(c, 12, 25, 8, 2, dark); strokeRect(c, 12, 23, 8, 4, INK);
+  rect(c, 5, 18, 3, 3, body); strokeRect(c, 5, 18, 3, 3, INK);
+  rect(c, 24, 18, 3, 3, body); strokeRect(c, 24, 18, 3, 3, INK);
+  rect(c, 11, 27, 4, 3, dark); strokeRect(c, 11, 27, 4, 3, INK);
+  rect(c, 17, 27, 4, 3, dark); strokeRect(c, 17, 27, 4, 3, INK);
 }
 
-/* heart 8x8 */
-export function heart(empty, scale){
-  const pal={O:INK, R:empty?'#d8c8e0':'#ff6b9d', H:'#ffb3c8', D:empty?'#a89aab':'#c84277'};
-  const a=[
-    ".OO..OO.",
-    "ORHRORHR",
-    "ORRRRRRR",
-    "ORHRRRRR",
-    "ORRRRRRR",
-    ".ODDDDR.",
-    "..ODDR..",
-    "...OO..."
-  ];
-  return spr(a,pal,scale||3);
+function drawEyes(c, k, ly){
+  ly = ly || 14; const lx = 11, rx = 20;
+  if(k === 'round'){ for(const cx of [lx,rx]){ rect(c, cx-1, ly-1, 3, 4, WHT); rect(c, cx-1, ly, 2, 2, INK); px(c, cx, ly-1, WHT); }}
+  else if(k === 'sparkle'){ for(const cx of [lx,rx]){ rect(c, cx-1, ly-2, 3, 5, WHT); rect(c, cx-1, ly, 2, 3, INK); px(c, cx, ly-1, WHT); px(c, cx-1, ly+1, WHT); }}
+  else if(k === 'happy'){ for(const cx of [lx,rx]){ px(c, cx-2, ly, INK); px(c, cx+1, ly, INK); px(c, cx-1, ly-1, INK); px(c, cx, ly-1, INK); }}
+  else if(k === 'dot'){ for(const cx of [lx,rx]) rect(c, cx-1, ly, 2, 2, INK); }
+  else if(k === 'goggles'){ for(const cx of [lx,rx]){ strokeEll(c, cx, ly, 3, 3, INK); fillEll(c, cx, ly, 2, 2, '#7ec4ff'); px(c, cx-1, ly-1, WHT); } for(let i = lx+3; i <= rx-3; i++) px(c, i, ly, INK); }
+  else if(k === 'sleepy'){ for(const cx of [lx,rx]){ px(c, cx-2, ly, INK); px(c, cx-1, ly, INK); px(c, cx, ly, INK); px(c, cx+1, ly, INK); px(c, cx-2, ly+1, INK); px(c, cx+1, ly+1, INK); }}
+  else if(k === 'snore'){ for(const cx of [lx,rx]){ px(c, cx-1, ly-1, INK); px(c, cx, ly-1, INK); px(c, cx-2, ly, INK); px(c, cx+1, ly, INK); px(c, cx-1, ly+1, INK); px(c, cx, ly+1, INK); }}
+  else if(k === 'star'){ for(const cx of [lx,rx]){ rect(c, cx-1, ly-1, 3, 4, WHT); rect(c, cx-1, ly, 2, 2, INK); px(c, cx, ly-1, '#ffe79e'); px(c, cx-1, ly+1, WHT); }}
 }
 
-/* cloud */
-export function cloud(big){
-  const pal={W:'#fff8e7', S:'#e6d5f3', O:INK};
-  const a = big ? [
-    "....OOOOO.......",
-    "..OOWWWWWOO.....",
-    ".OWWWWSWWWO.OO..",
-    "OWWWSWWWWWWOOWO.",
-    "OWWWWWWWSWWWWWO.",
-    "OWWSWWWWWWWWWO..",
-    ".OOOOOOOOOOOO..."
-  ] : [
-    "..OOOOO...",
-    ".OWWWWWO..",
-    "OWWWSWWWO.",
-    "OWWWWWWWO.",
-    ".OOOOOOO.."
-  ];
-  return spr(a,pal,4);
+function drawMouth(c, k, my){
+  my = my || 19;
+  if(k === 'smile'){ px(c, 15, my, INK); px(c, 16, my, INK); px(c, 14, my-1, INK); px(c, 17, my-1, INK); }
+  else if(k === 'oh'){ rect(c, 15, my-1, 2, 2, '#c84277'); strokeRect(c, 15, my-1, 2, 2, INK); }
+  else if(k === 'grin'){ rect(c, 13, my, 6, 2, INK); rect(c, 14, my, 4, 1, '#fff'); px(c, 15, my+1, '#ff7aa3'); px(c, 16, my+1, '#ff7aa3'); }
+  else if(k === 'uwu'){ px(c, 13, my, INK); px(c, 14, my-1, INK); px(c, 15, my, INK); px(c, 16, my, INK); px(c, 17, my-1, INK); px(c, 18, my, INK); }
+  else if(k === 'tongue'){ px(c, 15, my, INK); px(c, 16, my, INK); px(c, 15, my+1, '#ff7aa3'); px(c, 16, my+1, '#ff7aa3'); px(c, 14, my-1, INK); px(c, 17, my-1, INK); }
+  else if(k === 'zz'){ px(c, 15, my, INK); px(c, 16, my, INK); px(c, 17, my, INK); }
 }
 
-/* spark */
-export function spark(){
-  const pal={Y:'#ffe79e', W:'#fff8e7', O:'#ff7a3d'};
-  const a=[
-    "...O...",
-    ".O.Y.O.",
-    "..YWY..",
-    "OYWWWYO",
-    "..YWY..",
-    ".O.Y.O.",
-    "...O..."
-  ];
-  return spr(a,pal,3);
+function drawAcc(c, k, body){
+  if(k === 'ears'){
+    for(let y = 0; y < 8; y++){ rect(c, 9, y, 3, 1, body); rect(c, 20, y, 3, 1, body); }
+    for(let y = 2; y < 7; y++){ px(c, 10, y, '#ff9bbb'); px(c, 21, y, '#ff9bbb'); }
+    for(let y = 0; y < 8; y++){ px(c, 8, y, INK); px(c, 12, y, INK); px(c, 19, y, INK); px(c, 23, y, INK); }
+    rect(c, 9, 0, 3, 1, INK); rect(c, 20, 0, 3, 1, INK);
+  } else if(k === 'bow'){
+    rect(c, 17, 2, 4, 3, '#ff6b9d'); rect(c, 21, 1, 4, 5, '#ff6b9d'); rect(c, 25, 2, 3, 3, '#ff6b9d');
+    rect(c, 22, 3, 2, 1, '#c84277');
+    strokeRect(c, 17, 2, 4, 3, INK); strokeRect(c, 21, 1, 4, 5, INK); strokeRect(c, 25, 2, 3, 3, INK);
+  } else if(k === 'chef'){
+    fillEll(c, 12, 2, 4, 2, WHT); fillEll(c, 17, 1, 4, 2, WHT); fillEll(c, 22, 2, 4, 2, WHT);
+    rect(c, 9, 4, 14, 2, WHT); strokeRect(c, 9, 4, 14, 2, INK);
+    strokeEll(c, 12, 2, 4, 2, INK); strokeEll(c, 17, 1, 4, 2, INK); strokeEll(c, 22, 2, 4, 2, INK);
+  } else if(k === 'leaf'){
+    rect(c, 12, 2, 8, 4, '#3a9447');
+    rect(c, 11, 3, 1, 2, '#3a9447'); rect(c, 20, 3, 1, 2, '#3a9447');
+    rect(c, 15, 3, 1, 3, '#7ed98a');
+    px(c, 16, 1, '#3a9447'); px(c, 16, 0, '#3a9447');
+    strokeRect(c, 12, 2, 8, 4, INK); px(c, 11, 3, INK); px(c, 11, 4, INK); px(c, 20, 3, INK); px(c, 20, 4, INK);
+  } else if(k === 'avi'){
+    rect(c, 7, 4, 18, 3, '#a96e34'); rect(c, 8, 3, 16, 1, '#a96e34');
+    rect(c, 9, 7, 14, 1, '#7d4d22');
+    strokeRect(c, 7, 4, 18, 3, INK);
+    px(c, 8, 3, INK); px(c, 23, 3, INK);
+  } else if(k === 'wiz'){
+    px(c, 16, 0, '#5b3aa8');
+    rect(c, 15, 1, 3, 1, '#5b3aa8'); rect(c, 14, 2, 5, 1, '#5b3aa8'); rect(c, 13, 3, 7, 1, '#5b3aa8');
+    rect(c, 12, 4, 9, 1, '#5b3aa8'); rect(c, 11, 5, 11, 1, '#5b3aa8');
+    rect(c, 8, 6, 17, 2, '#5b3aa8'); rect(c, 7, 7, 19, 1, '#3a2370');
+    px(c, 16, 4, '#ffe79e'); px(c, 15, 5, '#ffe79e'); px(c, 17, 5, '#ffe79e');
+    px(c, 16, 0, INK); px(c, 15, 1, INK); px(c, 18, 1, INK); px(c, 14, 2, INK); px(c, 19, 2, INK);
+    px(c, 13, 3, INK); px(c, 20, 3, INK); px(c, 12, 4, INK); px(c, 21, 4, INK); px(c, 11, 5, INK); px(c, 22, 5, INK);
+    strokeRect(c, 7, 7, 19, 1, INK); strokeRect(c, 8, 6, 17, 2, INK);
+  } else if(k === 'flower'){
+    fillEll(c, 7, 4, 2, 2, '#ffa3c0'); fillEll(c, 11, 4, 2, 2, '#ffa3c0');
+    fillEll(c, 9, 2, 2, 2, '#ffa3c0'); fillEll(c, 9, 6, 2, 2, '#ffa3c0');
+    fillEll(c, 9, 4, 2, 2, '#ff6b9d');
+    px(c, 9, 4, '#ffe79e');
+    px(c, 12, 5, '#3a9447'); px(c, 13, 6, '#3a9447');
+  } else if(k === 'beanie'){
+    rect(c, 8, 3, 16, 4, '#7ec4ff'); rect(c, 8, 5, 16, 1, '#3a7ec4');
+    rect(c, 9, 7, 14, 1, '#cfe9ff');
+    fillEll(c, 16, 1, 2, 2, '#fff8e7');
+    strokeRect(c, 8, 3, 16, 4, INK); strokeEll(c, 16, 1, 2, 2, INK);
+  }
 }
 
-/* crown */
-export function crown(){
-  const pal={O:INK, Y:'#ffd34d', y:'#ffe79e', R:'#ff6b9d', B:'#7ec4ff', L:'#ffb061'};
-  const a=[
-    "O........O........O",
-    "OY......OY......OY.",
-    "OY.O...OY.O....OY..",
-    "OYYYO.OYYYOO..OYYYO",
-    "OYRYYYYYBYYYYYYYLYO",
-    "OyYYYYYYYYYYYYYYYyO",
-    "OOOOOOOOOOOOOOOOOO."
-  ];
-  return spr(a,pal,4);
+export function drawChar(ctx, id){
+  const s = CHARS[id]; if(!s) return;
+  drawBase(ctx, s.body, s.dark);
+  drawAcc(ctx, s.acc, s.body);
+  drawEyes(ctx, s.eye);
+  drawMouth(ctx, s.mouth);
 }
 
-/* logo bomb large */
-export function logoBomb(){
-  const pal={O:INK, B:'#3b2a55', D:'#1a1228', H:'#7a6494', W:WHT, E:INK, C:CHEEK, F:'#ff7a3d', s:'#ffe79e'};
-  const a=[
-    "........................",
-    "................F.......",
-    "...............FsF......",
-    "..............FsFs......",
-    ".............FFFF.......",
-    "............FF..........",
-    ".......OOOOOO...........",
-    ".....OOBBBBBBOO.........",
-    "....OBHBBBBBBBBO........",
-    "...OBBHBBBBBBBBBO.......",
-    "...OBHBWWEEWWBBBBO......",
-    "..OBBBBWWEEWWBBBBBO.....",
-    "..OBBBBBBBBBBBBBBBO.....",
-    "..OBBCCBBBBBBBBCCBO.....",
-    "..OBBCCBBBBBBBBCCBO.....",
-    "..OBBBBBBBBBBBBBBBO.....",
-    "..OBHBBBBBBBBBBBHBO.....",
-    "...OBBBBBBBBBBBBBO......",
-    "....OBDDDDDDDDDBO.......",
-    ".....OBDDDDDDDBO........",
-    "......OOOOOOOOO.........",
-    "........................",
-    "........................",
-    "........................"
-  ];
-  return spr(a,pal,5);
+/* ---------- BOMB (24x24) ---------- */
+export function drawBomb(c, hot){
+  const B = hot ? '#ff4a55' : '#3b2a55', D = hot ? '#a82030' : '#1a1228', H = hot ? '#ff8a90' : '#7a6494';
+  fillEll(c, 12, 14, 8, 8, B);
+  for(let yy = 10; yy < 22; yy++) for(let xx = 4; xx < 20; xx++){
+    const dx = (xx + 0.5 - 12) / 8, dy = (yy + 0.5 - 14) / 8;
+    if(dx*dx + dy*dy <= 1 && yy >= 15 && xx >= 12) px(c, xx, yy, D);
+  }
+  fillEll(c, 9, 11, 2, 2, H);
+  px(c, 8, 10, WHT);
+  strokeEll(c, 12, 14, 8, 8, INK);
+  rect(c, 10, 13, 2, 3, WHT); rect(c, 14, 13, 2, 3, WHT);
+  px(c, 11, 14, INK); px(c, 15, 14, INK);
+  px(c, 8, 17, '#ff9bbb'); px(c, 17, 17, '#ff9bbb');
+  px(c, 12, 18, INK); px(c, 13, 18, INK);
+  rect(c, 11, 5, 4, 2, INK); rect(c, 12, 7, 2, 1, INK);
+  px(c, 13, 4, '#5a4570'); px(c, 14, 3, '#5a4570'); px(c, 15, 2, '#5a4570');
+  if(hot){
+    px(c, 16, 1, '#ff7a3d'); px(c, 17, 0, '#ffe79e'); px(c, 17, 2, '#ff7a3d'); px(c, 18, 1, '#ffe79e');
+  } else {
+    px(c, 16, 1, '#ff7a3d'); px(c, 17, 0, '#ffe79e');
+  }
 }
 
-/* small icons */
-export function ico(kind){
-  const pal={O:INK, P:'#ff6b9d', Y:'#ffe79e', G:'#9fe0b8', B:'#7ec4ff', W:WHT, D:'#a82030', R:'#ff4a55', I:'#3a3550'};
-  const map={
-    play:[
-      "..OO....",
-      "..OPO...",
-      "..OPPO..",
-      "..OPPPO.",
-      "..OPPO..",
-      "..OPO...",
-      "..OO....",
-      "........"
-    ],
-    mp:[
-      "..OO.OO.",
-      ".OBBOPPO",
-      ".OBBOPPO",
-      "OBOOOOPO",
-      "OBBOOPPO",
-      ".OBBPPPO",
-      "..OOOOO.",
-      "........"
-    ],
-    cog:[
-      "..O.OO..",
-      ".OWOOWO.",
-      "OWWGGGWO",
-      "O.GIIG.O",
-      "O.GIIG.O",
-      "OWWGGGWO",
-      ".OWOOWO.",
-      "..O.OO.."
-    ],
-    cup:[
-      "OOOOOOOO",
-      "OYYYYYYO",
-      "OYIYYIYO",
-      "OYIYYIYO",
-      "OYYYYYYO",
-      ".OYYYYO.",
-      "..OYYO..",
-      ".OOOOOO."
-    ],
-    back:[
-      "...OO...",
-      "..OOO...",
-      ".OPOOOOO",
-      "OPPPPPPP",
-      ".OPOOOOO",
-      "..OOO...",
-      "...OO...",
-      "........"
-    ],
-    net:[
-      "..OOOO..",
-      ".OBWWBO.",
-      "OBWWWWBO",
-      "OWGWWGWO",
-      "OWGWWGWO",
-      "OBWWWWBO",
-      ".OBWWBO.",
-      "..OOOO.."
-    ],
-  };
-  return spr(map[kind], pal, 4);
+/* ---------- BOX (16x16) ---------- */
+export function drawBox(c){
+  rect(c, 0, 0, 16, 16, '#a96e34');
+  rect(c, 1, 1, 14, 14, '#d49758');
+  rect(c, 2, 2, 12, 12, '#ecc28e');
+  rect(c, 3, 3, 10, 10, '#d49758');
+  for(let i = 0; i < 10; i++){ px(c, 3+i, 3+i, '#a96e34'); px(c, 3+i, 12-i, '#a96e34'); }
+  strokeRect(c, 0, 0, 16, 16, INK);
+  rect(c, 5, 7, 2, 2, WHT); rect(c, 9, 7, 2, 2, WHT);
+  px(c, 5, 7, INK); px(c, 9, 7, INK);
+  px(c, 6, 8, INK); px(c, 10, 8, INK);
+  px(c, 4, 9, '#ff9bbb'); px(c, 11, 9, '#ff9bbb');
+  px(c, 7, 10, INK); px(c, 8, 10, INK);
 }
 
-/* ============ POWER-UP definitions ============ */
-export const POWERUPS = [
-  { id:'bomb', nm:'+ BOMB', ds:'CARRY ONE MORE BOMB',
-    pal:{O:INK,B:'#ff6b9d',D:'#c84277',H:'#ffa3c0',W:WHT,F:'#ff7a3d',s:'#ffe79e',C:'#ffe1ee'},
-    a:[
-      "................",
-      "................",
-      "..........F.....",
-      "..........FF....",
-      ".....OOOO.FsF...",
-      "....OBBBBOFFF...",
-      "...OBHBBBBO.....",
-      "..OBBHBBBBBO....",
-      "..OBHBWBWBBBO...",
-      "..OBBBWBWBBBO...",
-      "..OBBCBBBBCBO...",
-      "..OBBBBBBBBBO...",
-      "...OBDDDDDBO....",
-      "....OBDDBO......",
-      ".....OOOO.......",
-      "................"
-  ]},
-  { id:'fire', nm:'+ RANGE', ds:'BIGGER BLAST CROSS',
-    pal:{O:INK,F:'#ff7a3d',f:'#ffb061',y:'#ffe79e',W:WHT,R:'#ff4a55'},
-    a:[
-      "................",
-      "........y.......",
-      ".......yWy......",
-      "......yfWfy.....",
-      ".....yfWFfWy....",
-      "....yfWFFFWfy...",
-      "...yWFFFFFFWy...",
-      "..yfFFRRRRFFfy..",
-      "..yFRRRRRRRRFy..",
-      "..yFRRRWWRRRFy..",
-      "...yFRRRRRRFy...",
-      "....yfFFFFfy....",
-      ".....yfFFfy.....",
-      "......yffy......",
-      ".......OO.......",
-      "................"
-    ]},
-  { id:'speed', nm:'+ SPEED', ds:'WALK FASTER',
-    pal:{O:INK,B:'#ffe79e',D:'#d49758',W:WHT,L:'#ff6b9d',Y:'#ff7a3d',R:'#ff4a55'},
-    a:[
-      "................",
-      "................",
-      ".....OOOOO......",
-      "....OBBBBBO.....",
-      "...OBBWWWBBO....",
-      "..OLBWWLLWWBO...",
-      ".OLLBWWWWWWBLO..",
-      "OLLLBBBBBBBBLLO.",
-      "ODDDDDDDDDDDDDO.",
-      ".ODYYYYYYYYYDO..",
-      "..ODDDDDDDDDDO..",
-      "...OOOO..OOOO...",
-      "...O..R..R..O...",
-      "...O..R..R..O...",
-      "....OO....OO....",
-      "................"
-    ]},
-  { id:'remote', nm:'REMOTE', ds:'DETONATE ON COMMAND',
-    pal:{O:INK,B:'#3b2a55',D:'#1a1228',G:'#7ec4ff',W:WHT,R:'#ff4a55',Y:'#ffe79e'},
-    a:[
-      "................",
-      "....OOOOOOOO....",
-      "...OBBBBBBBBO...",
-      "..OBGGGGGGGGBO..",
-      "..OBGYYYYYYGBO..",
-      "..OBGYYRRYYGBO..",
-      "..OBGYYYYYYGBO..",
-      "..OBBBBBBBBBBO..",
-      "..OBROBROBROBO..",
-      "..OBBBBBBBBBBO..",
-      "..OBROBROBROBO..",
-      "..OBBBBBBBBBBO..",
-      "..OBBBOROBBBBO..",
-      "..OBBBBBBBBBBO..",
-      "...OOOOOOOOOO...",
-      "................"
-    ]},
-  { id:'kick', nm:'KICK BOMB', ds:'PUSH BOMBS WITH FOOT',
-    pal:{O:INK,B:'#ff7a3d',D:'#a8431f',L:'#ffb061',W:WHT,P:'#3b2a55'},
-    a:[
-      "................",
-      "....OOOOOOOO....",
-      "...OBBLLLBBBO...",
-      "..OBLLBBBLLBBO..",
-      "..OBLBBBBBLBBO..",
-      "..OBLBBBBBLBBO..",
-      "..OBBBBBBBBBBO..",
-      ".OBBBBBBBBBBBBO.",
-      ".OBDDDDDDDDDDBO.",
-      ".OBDDDDDDDDDDBO.",
-      "..OOOOOOOOOOOOO.",
-      "..............O.",
-      "...OOO........O.",
-      "..OPPPO.......O.",
-      "...OOO........O.",
-      "................"
-    ]},
-  { id:'glove', nm:'THROW BOMB', ds:'PICK UP & THROW',
-    pal:{O:INK,B:'#7ec4ff',D:'#3a7ec4',W:WHT,L:'#cfe9ff'},
-    a:[
-      "................",
-      "......OOOOO.....",
-      ".....OBLLBBO....",
-      "....OBBLLBBBO...",
-      "...OBLBLLBLBBO..",
-      "..OBLLBLLBLLBO..",
-      "..OBLLBBBBLLBO..",
-      "..OBLBLLLLBLBO..",
-      "..OBLLBBBBLLBO..",
-      "..OBLLLLLLLLBO..",
-      "...OBBBBBBBBO...",
-      "....OBDDDDBO....",
-      "....OBDDDDBO....",
-      ".....OBDDBO.....",
-      "......OOOO......",
-      "................"
-    ]},
-  { id:'ghost', nm:'GHOST', ds:'WALK THRU WALLS BRIEFLY',
-    pal:{O:INK,W:WHT,L:'#e8e0f0',E:INK,C:'#ffb3c8'},
-    a:[
-      "................",
-      ".....OOOO.......",
-      "....OWWWWO......",
-      "...OWWWWWWO.....",
-      "..OWWWWWWWWO....",
-      "..OWWEWWEWWO....",
-      "..OWWWWWWWWO....",
-      "..OWWWLLWWWO....",
-      "..OWCWWWWCWO....",
-      "..OWWWWWWWWO....",
-      "..OWWWWWWWWO....",
-      "..OWWWWWWWWO....",
-      "..OWWLWWWLWO....",
-      "..OOOO.OOOO.....",
-      "................",
-      "................"
-    ]},
-  { id:'shield', nm:'SHIELD', ds:'SURVIVE 1 EXPLOSION',
-    pal:{O:INK,B:'#7ec4ff',L:'#cfe9ff',D:'#3a7ec4',Y:'#ffe79e'},
-    a:[
-      "................",
-      "....OOOOOOOO....",
-      "...OBLLLLLLBO...",
-      "..OBLLLLLLLLBO..",
-      "..OBLLYLLYLLBO..",
-      "..OBLLLLLLLLBO..",
-      "..OBLLLYYLLLBO..",
-      "..OBLLLLLLLLBO..",
-      "..OBLLLLLLLLBO..",
-      "..ODBLLLLLLBDO..",
-      "...ODBLLLLBDO...",
-      "....ODBLLBDO....",
-      ".....ODBBDO.....",
-      "......ODDO......",
-      ".......OO.......",
-      "................"
-    ]},
-  { id:'ice', nm:'ICE BOMB', ds:'FREEZE ENEMIES',
-    pal:{O:INK,B:'#cfe9ff',D:'#7ec4ff',L:WHT,F:'#3a7ec4',W:WHT,E:INK},
-    a:[
-      "................",
-      "............W...",
-      "...........WLW..",
-      "..........WLLW..",
-      ".....OOOO.WWW...",
-      "....OBBBBOWW....",
-      "...OBLBBBBO.....",
-      "..OBBLBBBBBO....",
-      "..OBLBWEWEBBO...",
-      "..OBBBWEWEBBO...",
-      "..OBLBBBBBLBO...",
-      "..OBBBBBBBBBO...",
-      "...OFDDDDDFO....",
-      "....OFDDFO......",
-      ".....OOOO.......",
-      "................"
-    ]},
-  { id:'magnet', nm:'MAGNET', ds:'PULLS POWER-UPS IN',
-    pal:{O:INK,R:'#ff4a55',B:'#3a3550',W:WHT,L:'#ffb3c8'},
-    a:[
-      "................",
-      ".OOOOO....OOOOO.",
-      "OBRRRBO..OBRRRBO",
-      "OBRLRBO..OBRLRBO",
-      "OBRRRBO..OBRRRBO",
-      "OBRRRBO..OBRRRBO",
-      "OBBBBBO..OBBBBBO",
-      "OBWWWBO..OBWWWBO",
-      "OBWWWBO..OBWWWBO",
-      "OBWWWBO..OBWWWBO",
-      "OBWWWBO..OBWWWBO",
-      "OBBBBBO..OBBBBBO",
-      ".OOOOO....OOOOO.",
-      "................",
-      "................",
-      "................"
-    ]},
-  { id:'slow', nm:'SLOW-MO', ds:'SLOWS OTHERS',
-    pal:{O:INK,B:'#fff8e7',D:'#d2b3ee',H:'#7d6996',R:'#ff4a55',W:WHT},
-    a:[
-      "................",
-      "......OOOO......",
-      "....OOBBBBOO....",
-      "...OBBBBBBBBO...",
-      "..OBBWWWWWWBBO..",
-      "..OBWWWHWWWWBO..",
-      "..OBWWWHRWWWBO..",
-      "..OBWWWHHHWWBO..",
-      "..OBWWWWWWHWBO..",
-      "..OBWWWWWWWWBO..",
-      "..OBBWWWWWWBBO..",
-      "...OBBBBBBBBO...",
-      "....OOBBBBOO....",
-      "......OOOO......",
-      "................",
-      "................"
-    ]},
-  { id:'super', nm:'SUPER BOMB', ds:'BLAST TO THE WALL',
-    pal:{O:INK,B:'#ffe79e',D:'#d4a224',Y:'#ffe79e',R:'#ff4a55',W:WHT,P:'#3b2a55',F:'#ff7a3d',s:'#ffe79e'},
-    a:[
-      "................",
-      "..........F.....",
-      ".........FsF....",
-      "........FsFs....",
-      ".....OOOO.FFF...",
-      "....ORRRROFF....",
-      "...ORYRRRRO.....",
-      "..ORRYRRRRRO....",
-      "..ORYRWBWBRRO...",
-      "..ORRRWBWBYRO...",
-      "..ORRYRRRRYRO...",
-      "..ORRRRRRRRRO...",
-      "...OPDDDDPO.....",
-      "....OPDDPO......",
-      ".....OOOO.......",
-      "................"
-    ]},
-];
+/* ---------- PILLAR (16x16) ---------- */
+export function drawPillar(c){
+  rect(c, 0, 0, 16, 16, '#7d6996');
+  rect(c, 1, 1, 14, 14, '#9a96b5');
+  for(let i = 0; i < 16; i++){ px(c, i, 5, '#7d6996'); px(c, i, 10, '#7d6996'); }
+  for(let i = 1; i < 5; i++) px(c, 4, i, '#7d6996');
+  for(let i = 6; i < 10; i++) px(c, 8, i, '#7d6996');
+  for(let i = 11; i < 15; i++) px(c, 4, i, '#7d6996');
+  for(let i = 11; i < 15; i++) px(c, 11, i, '#7d6996');
+  rect(c, 2, 2, 2, 1, '#cfccdf');
+  strokeRect(c, 0, 0, 16, 16, INK);
+  px(c, 6, 7, INK); px(c, 9, 7, INK);
+  px(c, 7, 8, INK); px(c, 8, 8, INK);
+}
 
-export function getPowerup(id){
-  return POWERUPS.find(p => p.id === id);
+/* ---------- EXPLOSION ---------- */
+export function drawExCenter(c){
+  fillEll(c, 8, 8, 7, 7, '#ff7a3d');
+  fillEll(c, 8, 8, 5, 5, '#ffb061');
+  fillEll(c, 8, 8, 3, 3, '#ffe79e');
+  fillEll(c, 8, 8, 1, 1, WHT);
+  strokeEll(c, 8, 8, 7, 7, INK);
+  px(c, 1, 8, INK); px(c, 14, 8, INK);
+  px(c, 8, 1, INK); px(c, 8, 14, INK);
+}
+export function drawExArm(c){
+  for(let x = 0; x < 16; x++){ rect(c, x, 4, 1, 8, '#ff7a3d'); }
+  for(let x = 1; x < 15; x++) rect(c, x, 5, 1, 6, '#ffb061');
+  for(let x = 2; x < 14; x++) rect(c, x, 6, 1, 4, '#ffe79e');
+  for(let x = 4; x < 12; x++) rect(c, x, 7, 1, 2, WHT);
+  for(let x = 0; x < 16; x++){ px(c, x, 4, INK); px(c, x, 11, INK); }
+}
+
+/* ---------- HEART (8x8) ---------- */
+export function drawHeart(c, empty){
+  const R = empty ? '#d8c8e0' : '#ff6b9d', H = '#ffb3c8', D = empty ? '#a89aab' : '#c84277';
+  rect(c, 1, 1, 2, 1, R); rect(c, 5, 1, 2, 1, R);
+  rect(c, 1, 2, 6, 1, R);
+  rect(c, 2, 3, 4, 1, R);
+  rect(c, 3, 4, 2, 1, D);
+  px(c, 2, 1, H);
+  px(c, 0, 1, INK); px(c, 3, 1, INK); px(c, 4, 1, INK); px(c, 7, 1, INK);
+  px(c, 0, 2, INK); px(c, 7, 2, INK);
+  px(c, 1, 3, INK); px(c, 6, 3, INK);
+  px(c, 2, 4, INK); px(c, 5, 4, INK);
+  px(c, 3, 5, INK); px(c, 4, 5, INK);
+}
+
+/* ---------- POWER-UPS (16x16) ---------- */
+export const PUPS = {
+  bomb:   { nm:'+ BOMB',  ds:'CARRY ONE MORE BOMB' },
+  fire:   { nm:'+ RANGE', ds:'BIGGER BLAST CROSS' },
+  speed:  { nm:'+ SPEED', ds:'WALK FASTER' },
+  remote: { nm:'REMOTE',  ds:'DETONATE ON COMMAND' },
+  kick:   { nm:'KICK',    ds:'PUSH BOMBS WITH FOOT' },
+  glove:  { nm:'THROW',   ds:'PICK UP & THROW' },
+  ghost:  { nm:'GHOST',   ds:'WALK THRU WALLS' },
+  shield: { nm:'SHIELD',  ds:'SURVIVE 1 BLAST' },
+  ice:    { nm:'ICE',     ds:'FREEZE ENEMIES' },
+  magnet: { nm:'MAGNET',  ds:'PULLS UPS IN' },
+  slow:   { nm:'SLOW-MO', ds:'SLOWS OTHERS' },
+  super:  { nm:'SUPER',   ds:'BLAST TO WALL' },
+};
+
+export function drawPup(c, id){
+  if(id === 'bomb'){
+    fillEll(c, 8, 9, 5, 5, '#ff6b9d'); strokeEll(c, 8, 9, 5, 5, INK);
+    fillEll(c, 6, 7, 1, 1, '#ffa3c0');
+    rect(c, 7, 3, 3, 1, INK); px(c, 8, 5, INK); px(c, 9, 4, '#5a4570'); px(c, 10, 3, '#5a4570'); px(c, 11, 2, '#ff7a3d'); px(c, 12, 1, '#ffe79e');
+    rect(c, 6, 8, 2, 2, WHT); rect(c, 9, 8, 2, 2, WHT); px(c, 7, 9, INK); px(c, 10, 9, INK);
+    px(c, 5, 11, '#ffa3c0'); px(c, 11, 11, '#ffa3c0');
+  } else if(id === 'fire'){
+    px(c, 8, 2, '#ffe79e');
+    rect(c, 7, 3, 2, 1, '#ffb061');
+    rect(c, 6, 4, 4, 1, '#ff7a3d');
+    rect(c, 5, 5, 6, 1, '#ff7a3d');
+    rect(c, 4, 6, 8, 1, '#ff4a55');
+    rect(c, 3, 7, 10, 2, '#ff4a55');
+    rect(c, 3, 9, 10, 2, '#ff7a3d');
+    rect(c, 4, 11, 8, 1, '#ffb061');
+    rect(c, 5, 12, 6, 1, '#ffe79e');
+    rect(c, 6, 13, 4, 1, WHT);
+    px(c, 8, 1, INK); px(c, 8, 2, INK);
+    px(c, 3, 7, INK); px(c, 12, 7, INK); px(c, 3, 10, INK); px(c, 12, 10, INK);
+    px(c, 2, 8, INK); px(c, 13, 8, INK); px(c, 2, 9, INK); px(c, 13, 9, INK);
+    px(c, 5, 4, INK); px(c, 10, 4, INK); px(c, 4, 5, INK); px(c, 11, 5, INK);
+    px(c, 6, 13, INK); px(c, 9, 13, INK); px(c, 7, 14, INK); px(c, 8, 14, INK);
+  } else if(id === 'speed'){
+    rect(c, 2, 8, 12, 3, '#ffe79e');
+    rect(c, 2, 11, 12, 2, '#d49758');
+    rect(c, 3, 7, 10, 1, '#fff8e7');
+    rect(c, 4, 6, 8, 1, '#fff8e7');
+    rect(c, 11, 5, 3, 3, '#ffe79e');
+    px(c, 5, 7, '#ff6b9d'); px(c, 7, 7, '#ff6b9d'); px(c, 9, 7, '#ff6b9d');
+    px(c, 4, 12, '#ff4a55'); px(c, 8, 12, '#ff4a55'); px(c, 12, 12, '#ff4a55');
+    strokeRect(c, 2, 8, 12, 3, INK);
+    strokeRect(c, 2, 11, 12, 2, INK);
+    px(c, 11, 5, INK); px(c, 13, 5, INK); px(c, 14, 8, INK);
+    px(c, 0, 9, INK); px(c, 0, 10, INK);
+  } else if(id === 'remote'){
+    rect(c, 3, 3, 10, 10, '#3b2a55'); strokeRect(c, 3, 3, 10, 10, INK);
+    rect(c, 4, 4, 8, 3, '#7ec4ff'); rect(c, 5, 5, 6, 1, '#ffe79e');
+    px(c, 6, 5, INK); px(c, 9, 5, INK);
+    rect(c, 5, 8, 2, 1, '#ff4a55'); rect(c, 9, 8, 2, 1, '#ff4a55');
+    rect(c, 5, 10, 2, 1, WHT); rect(c, 9, 10, 2, 1, WHT);
+    px(c, 8, 12, '#ff4a55'); px(c, 7, 12, '#ff4a55');
+    px(c, 12, 2, INK); px(c, 13, 1, INK); px(c, 14, 0, '#ffe79e');
+  } else if(id === 'kick'){
+    rect(c, 3, 4, 4, 8, '#ff7a3d');
+    rect(c, 3, 11, 9, 2, '#a8431f');
+    rect(c, 7, 7, 5, 5, '#ff7a3d');
+    rect(c, 4, 5, 2, 2, '#ffb061');
+    strokeRect(c, 3, 4, 4, 8, INK);
+    strokeRect(c, 3, 11, 9, 2, INK);
+    strokeRect(c, 7, 7, 5, 5, INK);
+    fillEll(c, 13, 11, 2, 2, '#3b2a55');
+    strokeEll(c, 13, 11, 2, 2, INK);
+    px(c, 15, 9, '#ff7a3d');
+  } else if(id === 'glove'){
+    rect(c, 4, 3, 8, 8, '#7ec4ff');
+    rect(c, 3, 5, 2, 4, '#7ec4ff');
+    rect(c, 4, 11, 8, 3, '#3a7ec4');
+    rect(c, 5, 4, 6, 1, '#cfe9ff');
+    strokeRect(c, 4, 3, 8, 8, INK);
+    strokeRect(c, 3, 5, 2, 4, INK);
+    strokeRect(c, 4, 11, 8, 3, INK);
+    px(c, 6, 7, INK); px(c, 8, 7, INK); px(c, 10, 7, INK);
+  } else if(id === 'ghost'){
+    fillEll(c, 8, 7, 5, 5, WHT);
+    rect(c, 3, 7, 11, 5, WHT);
+    rect(c, 3, 12, 2, 1, WHT); rect(c, 6, 12, 2, 1, WHT); rect(c, 9, 12, 2, 1, WHT); rect(c, 12, 12, 2, 1, WHT);
+    rect(c, 4, 13, 1, 1, WHT); rect(c, 7, 13, 1, 1, WHT); rect(c, 10, 13, 1, 1, WHT); rect(c, 13, 13, 1, 1, WHT);
+    strokeEll(c, 8, 7, 5, 5, INK);
+    px(c, 3, 12, INK); px(c, 5, 12, INK); px(c, 6, 12, INK); px(c, 8, 12, INK); px(c, 9, 12, INK); px(c, 11, 12, INK); px(c, 12, 12, INK); px(c, 14, 12, INK);
+    px(c, 4, 13, INK); px(c, 7, 13, INK); px(c, 10, 13, INK); px(c, 13, 13, INK);
+    rect(c, 6, 7, 1, 2, INK); rect(c, 9, 7, 1, 2, INK);
+    px(c, 5, 9, '#ff9bbb'); px(c, 11, 9, '#ff9bbb');
+  } else if(id === 'shield'){
+    rect(c, 4, 2, 8, 2, '#7ec4ff');
+    rect(c, 3, 4, 10, 5, '#7ec4ff');
+    rect(c, 4, 9, 8, 2, '#7ec4ff');
+    rect(c, 5, 11, 6, 1, '#7ec4ff');
+    rect(c, 6, 12, 4, 1, '#7ec4ff');
+    rect(c, 7, 13, 2, 1, '#7ec4ff');
+    px(c, 8, 5, '#ffe79e'); rect(c, 7, 6, 3, 1, '#ffe79e'); rect(c, 6, 7, 5, 1, '#ffe79e'); rect(c, 7, 8, 3, 1, '#ffe79e'); px(c, 8, 9, '#ffe79e');
+    px(c, 4, 2, INK); px(c, 11, 2, INK); px(c, 3, 4, INK); px(c, 12, 4, INK);
+    px(c, 3, 8, INK); px(c, 12, 8, INK); px(c, 4, 9, INK); px(c, 11, 9, INK);
+    px(c, 5, 11, INK); px(c, 10, 11, INK); px(c, 6, 12, INK); px(c, 9, 12, INK);
+    px(c, 7, 13, INK); px(c, 8, 13, INK);
+    rect(c, 4, 3, 8, 1, '#cfe9ff');
+  } else if(id === 'ice'){
+    fillEll(c, 8, 9, 5, 5, '#cfe9ff'); strokeEll(c, 8, 9, 5, 5, INK);
+    rect(c, 7, 3, 3, 1, INK); px(c, 8, 5, INK); px(c, 9, 4, '#7ec4ff'); px(c, 10, 3, WHT);
+    rect(c, 6, 8, 2, 2, WHT); rect(c, 9, 8, 2, 2, WHT); px(c, 7, 9, INK); px(c, 10, 9, INK);
+    px(c, 3, 3, WHT); px(c, 4, 4, '#7ec4ff'); px(c, 3, 5, WHT);
+    px(c, 13, 3, WHT); px(c, 14, 2, '#7ec4ff');
+  } else if(id === 'magnet'){
+    rect(c, 3, 3, 3, 8, '#ff4a55'); rect(c, 10, 3, 3, 8, '#ff4a55');
+    rect(c, 3, 3, 10, 2, '#ff4a55');
+    rect(c, 3, 3, 3, 3, '#fff8e7'); rect(c, 10, 3, 3, 3, '#fff8e7');
+    rect(c, 3, 11, 3, 2, WHT); rect(c, 10, 11, 3, 2, WHT);
+    strokeRect(c, 3, 3, 3, 10, INK); strokeRect(c, 10, 3, 3, 10, INK);
+    rect(c, 6, 3, 4, 2, '#ff4a55'); strokeRect(c, 3, 3, 10, 2, INK);
+    px(c, 1, 7, '#ffe79e'); px(c, 14, 7, '#ffe79e');
+    px(c, 2, 2, '#ffe79e'); px(c, 13, 1, '#ffe79e');
+  } else if(id === 'slow'){
+    fillEll(c, 8, 9, 6, 6, WHT); strokeEll(c, 8, 9, 6, 6, INK);
+    fillEll(c, 8, 9, 5, 5, '#fff8e7');
+    px(c, 8, 4, INK); px(c, 8, 14, INK); px(c, 3, 9, INK); px(c, 13, 9, INK);
+    rect(c, 8, 6, 1, 3, INK); rect(c, 8, 9, 4, 1, INK);
+    px(c, 8, 9, '#ff4a55');
+    rect(c, 7, 2, 3, 2, '#3a3550'); strokeRect(c, 7, 2, 3, 2, INK);
+  } else if(id === 'super'){
+    fillEll(c, 8, 9, 5, 5, '#ff4a55'); strokeEll(c, 8, 9, 5, 5, INK);
+    px(c, 5, 7, '#ffe79e'); px(c, 11, 7, '#ffe79e'); px(c, 5, 11, '#ffe79e'); px(c, 11, 11, '#ffe79e'); px(c, 8, 9, '#ffe79e');
+    rect(c, 7, 3, 3, 1, INK); px(c, 9, 4, '#5a4570'); px(c, 10, 3, '#ff7a3d'); px(c, 11, 2, '#ffe79e'); px(c, 12, 1, WHT);
+    rect(c, 6, 8, 2, 2, WHT); rect(c, 9, 8, 2, 2, WHT); px(c, 7, 9, INK); px(c, 10, 9, INK);
+    px(c, 5, 12, '#ffe79e'); px(c, 11, 12, '#ffe79e');
+  }
+}
+
+/* ---------- ICONS (10x10) ---------- */
+export function drawIco(c, k){
+  if(k === 'play'){
+    rect(c, 3, 2, 1, 6, INK);
+    for(let i = 0; i < 6; i++) rect(c, 4, 2+i, Math.min(6-i, 4), 1, '#ff6b9d');
+    px(c, 3, 2, INK); px(c, 3, 7, INK); px(c, 4, 2, INK); px(c, 4, 7, INK);
+    px(c, 5, 3, INK); px(c, 5, 6, INK); px(c, 6, 4, INK); px(c, 6, 5, INK); px(c, 7, 4, INK); px(c, 7, 5, INK); px(c, 8, 4, INK); px(c, 8, 5, INK);
+  } else if(k === 'mp'){
+    fillEll(c, 3, 5, 2, 2, '#7ec4ff'); strokeEll(c, 3, 5, 2, 2, INK);
+    fillEll(c, 7, 5, 2, 2, '#ff6b9d'); strokeEll(c, 7, 5, 2, 2, INK);
+  } else if(k === 'cog'){
+    fillEll(c, 5, 5, 3, 3, '#9fe0b8'); strokeEll(c, 5, 5, 3, 3, INK);
+    fillEll(c, 5, 5, 1, 1, INK);
+    px(c, 5, 1, INK); px(c, 5, 8, INK); px(c, 1, 5, INK); px(c, 8, 5, INK);
+    px(c, 2, 2, INK); px(c, 7, 2, INK); px(c, 2, 7, INK); px(c, 7, 7, INK);
+  } else if(k === 'cup'){
+    rect(c, 2, 2, 6, 4, '#ffe79e');
+    rect(c, 3, 6, 4, 1, '#ffe79e');
+    rect(c, 3, 7, 4, 1, '#a96e34');
+    rect(c, 2, 8, 6, 1, '#a96e34');
+    strokeRect(c, 2, 2, 6, 4, INK);
+    px(c, 2, 8, INK); px(c, 7, 8, INK);
+  } else if(k === 'back'){
+    px(c, 2, 5, '#ff6b9d'); px(c, 3, 4, '#ff6b9d'); px(c, 3, 5, '#ff6b9d'); px(c, 3, 6, '#ff6b9d');
+    rect(c, 4, 5, 5, 1, '#ff6b9d');
+    px(c, 3, 4, INK); px(c, 3, 6, INK); px(c, 2, 5, INK); px(c, 8, 5, INK);
+  } else if(k === 'net'){
+    fillEll(c, 5, 5, 4, 4, '#7ec4ff'); strokeEll(c, 5, 5, 4, 4, INK);
+    rect(c, 1, 5, 8, 1, INK); rect(c, 5, 1, 1, 8, INK);
+    px(c, 3, 3, INK); px(c, 7, 3, INK); px(c, 3, 7, INK); px(c, 7, 7, INK);
+  }
+}
+
+/* ---------- CROWN (20x12) ---------- */
+export function drawCrown(c){
+  rect(c, 1, 8, 18, 3, '#ffd34d');
+  rect(c, 1, 3, 3, 5, '#ffd34d');
+  rect(c, 5, 5, 3, 3, '#ffd34d');
+  rect(c, 9, 2, 2, 6, '#ffd34d');
+  rect(c, 12, 5, 3, 3, '#ffd34d');
+  rect(c, 16, 3, 3, 5, '#ffd34d');
+  px(c, 2, 6, '#ff4a55'); px(c, 6, 7, '#7ec4ff'); px(c, 9, 5, '#ff6b9d'); px(c, 13, 7, '#7ed98a'); px(c, 17, 6, '#b58ee8');
+  rect(c, 1, 8, 18, 1, '#ffe79e');
+  strokeRect(c, 1, 8, 18, 3, INK);
+  px(c, 1, 3, INK); px(c, 3, 3, INK); px(c, 1, 7, INK); px(c, 3, 7, INK); px(c, 4, 7, INK);
+  px(c, 5, 5, INK); px(c, 7, 5, INK); px(c, 5, 7, INK); px(c, 7, 7, INK); px(c, 8, 7, INK);
+  px(c, 9, 2, INK); px(c, 10, 2, INK); px(c, 9, 7, INK); px(c, 10, 7, INK); px(c, 11, 7, INK);
+  px(c, 12, 5, INK); px(c, 14, 5, INK); px(c, 12, 7, INK); px(c, 14, 7, INK); px(c, 15, 7, INK);
+  px(c, 16, 3, INK); px(c, 18, 3, INK); px(c, 16, 7, INK); px(c, 18, 7, INK);
+  for(let y = 3; y < 8; y++){ px(c, 1, y, INK); px(c, 18, y, INK); }
+}
+
+/* ---------- CLOUD ---------- */
+export function drawCloud(c, big){
+  const w = c.canvas.width, h = c.canvas.height;
+  fillEll(c, w*0.3, h*0.6, w*0.18, h*0.35, WHT);
+  fillEll(c, w*0.5, h*0.5, w*0.22, h*0.45, WHT);
+  fillEll(c, w*0.7, h*0.55, w*0.2, h*0.4, WHT);
+  rect(c, 1, h-2, w-2, 1, WHT);
+  if(big){ fillEll(c, w*0.85, h*0.65, w*0.12, h*0.3, WHT); }
+}
+
+/* ---------- SPARK ---------- */
+export function drawSpark(c){
+  px(c, 3, 0, '#ff7a3d'); px(c, 4, 1, '#ffe79e'); px(c, 3, 1, '#ff7a3d');
+  px(c, 2, 2, '#ffe79e'); px(c, 3, 2, WHT); px(c, 4, 2, '#ffe79e');
+  px(c, 3, 3, '#ff7a3d'); rect(c, 2, 4, 4, 1, '#ff7a3d');
+  px(c, 1, 3, '#ffe79e'); px(c, 5, 3, '#ffe79e');
+  px(c, 3, 5, '#ffe79e'); px(c, 3, 6, '#ff7a3d');
+  px(c, 0, 3, WHT); px(c, 7, 3, WHT);
+}
+
+/* ---------- MINI BOARD PREVIEW ---------- */
+export function drawMini(ctx, w, h){
+  ctx.canvas.width = w * 4;
+  ctx.canvas.height = h * 4;
+  ctx.imageSmoothingEnabled = false;
+  for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){
+    const isBorder = x === 0 || y === 0 || x === w-1 || y === h-1;
+    const isPillar = x % 2 === 0 && y % 2 === 0;
+    let col;
+    if(isBorder || isPillar) col = '#7d6996';
+    else if(((x+y) % 5 === 0) || ((x*7 + y*3) % 6 === 0)) col = '#d49758';
+    else col = (x+y) % 2 ? '#d8eecf' : '#c8e3bd';
+    if(x === 1 && y === 1) col = '#6dd5e8';
+    if(x === w-2 && y === 1) col = '#ff9ec7';
+    if(x === 1 && y === h-2) col = '#f5d958';
+    if(x === w-2 && y === h-2) col = '#7ed98a';
+    rect(ctx, x*4, y*4, 4, 4, col);
+  }
+}
+
+/* ====================================================== */
+/* Helpers: build canvas elements ready to insert in DOM.   */
+/* ====================================================== */
+export function makeCanvas(baseW, baseH, drawFn){
+  const cv = document.createElement('canvas');
+  cv.width = baseW;
+  cv.height = baseH;
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  drawFn(ctx);
+  return cv;
+}
+
+export function charCanvas(id){ return makeCanvas(32, 32, ctx => drawChar(ctx, id)); }
+export function bombCanvas(hot){ return makeCanvas(24, 24, ctx => drawBomb(ctx, !!hot)); }
+export function boxCanvas(){ return makeCanvas(16, 16, drawBox); }
+export function pillarCanvas(){ return makeCanvas(16, 16, drawPillar); }
+export function exCenterCanvas(){ return makeCanvas(16, 16, drawExCenter); }
+export function exArmCanvas(rotateDeg){
+  const cv = makeCanvas(16, 16, drawExArm);
+  if(rotateDeg) cv.style.transform = `rotate(${rotateDeg}deg)`;
+  return cv;
+}
+export function heartCanvas(empty){ return makeCanvas(8, 8, ctx => drawHeart(ctx, !!empty)); }
+export function pupCanvas(id){ return makeCanvas(16, 16, ctx => drawPup(ctx, id)); }
+export function icoCanvas(kind){ return makeCanvas(10, 10, ctx => drawIco(ctx, kind)); }
+export function crownCanvas(){ return makeCanvas(20, 12, drawCrown); }
+export function cloudCanvas(big){ return makeCanvas(big ? 30 : 20, big ? 14 : 12, ctx => drawCloud(ctx, !!big)); }
+export function sparkCanvas(){ return makeCanvas(8, 8, drawSpark); }
+export function miniCanvas(w, h){
+  const cv = document.createElement('canvas');
+  const ctx = cv.getContext('2d');
+  drawMini(ctx, w, h);
+  return cv;
 }
