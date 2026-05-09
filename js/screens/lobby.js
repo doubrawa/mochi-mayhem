@@ -244,15 +244,19 @@ function buildSlots(host, state){
   });
 }
 
+/* Scheme is bound to the slot's *active* position so toggling human → cpu
+   doesn't shift bindings onto later avatars.  P1=human (WASD), P2=human
+   (arrows), P3=human (ijkl), P4=human (numpad).  Switch P2 → cpu and the
+   schemes stay: P1=WASD, P3=ijkl, P4=numpad — P2's arrows binding is
+   simply parked, not transferred.  Only OFF slots are excluded from the
+   counter (an OFF slot never had a scheme to keep). */
 function humanSchemeFor(state, idx){
-  let humanCount = 0;
-  for(let i = 0; i <= idx; i++){
-    if(state.players[i].mode === 'human'){
-      if(i === idx) return HUMAN_SCHEME_ORDER[humanCount] || 'wasd';
-      humanCount++;
-    }
+  if(state.players[idx].mode !== 'human') return null;
+  let activeBefore = 0;
+  for(let i = 0; i < idx; i++){
+    if(state.players[i].mode !== 'off') activeBefore++;
   }
-  return 'wasd';
+  return HUMAN_SCHEME_ORDER[activeBefore] || null;
 }
 
 function activeCount(state){

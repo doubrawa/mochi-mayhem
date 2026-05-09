@@ -30,16 +30,14 @@ export function createEngine(lobby, hooks, opts = {}){
 
   const players = [];
   const cpus = new Map();         // idx -> cpu controller for cpu-mode players
-  let humanCount = 0;
   let cpuCount = 0;
   activePlayers.forEach((cfg, i) => {
     const spawn = field.spawns[i] || field.spawns[0];
     const slot = { idx: i, x: spawn[0], y: spawn[1] };
-    let scheme = null;
-    if(cfg.mode === 'human'){
-      scheme = HUMAN_SCHEMES[humanCount] || null;
-      humanCount++;
-    }
+    /* Scheme is bound to the slot's active position (matches lobby.js).
+       Toggling a slot from human to CPU keeps later humans' bindings
+       intact — their schemes don't shift up. */
+    const scheme = cfg.mode === 'human' ? (HUMAN_SCHEMES[i] || null) : null;
     players.push(createPlayer(slot, scheme, cfg.id, cfg.mode, cfg.name));
     if(cfg.mode === 'cpu'){
       /* First CPU per match is "nice", later ones get "mean" — keeps things

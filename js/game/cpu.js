@@ -83,9 +83,21 @@ export function createCpuController(level = 'nice'){
 
       const danger = buildDangerMap(view);
 
-      /* ---- P1 — immediate threat overrides everything ---- */
+      /* ---- P1 — immediate threat handling.  Critical: if our existing plan
+         is still safe (every tile satisfies the arrival-time check against
+         the current danger map), we KEEP IT, even if our current tile happens
+         to be a transit blast tile.  Otherwise the CPU oscillates: in tight
+         spawns the only "safe island" is one tile, and any sensible long-term
+         goal requires crossing a blast tile briefly.  Flipping to a "flee
+         back to the island" plan every time we step into the blast deadlocks
+         the CPU in place until the bomb explodes — and kills it. ---- */
       const myBlast = danger.get(myTx + ',' + myTy);
       if(myBlast !== undefined){
+        if(plan && plan.path
+           && !planComplete(plan, me)
+           && planStepStillSafe(plan, view, me, danger)){
+          return executePlan(plan, me, view, danger);
+        }
         const escape = findEscapePath(view, me, danger);
         plan = escape
           ? { kind: 'flee', path: escape.path, stepIdx: 0 }
@@ -146,11 +158,15 @@ export function createCpuController(level = 'nice'){
             || idle();
       }
 
-      /* ---- P7 — fallback: drift toward a tile with more exits ---- */
-      const wander = pickControlledStep(view, me, danger, recentDanger, t)
-                  || anyPassableNeighborCmd(view, me, myTx, myTy);
-      return wander || idle();
+      /* ---- P7 — fallback.  Drift toward a tile with more exits, but never
+         into a blast: if the only passable neighbours are in blast zones,
+         the right move is to STAY PUT on our safe tile until the blast
+         clears.  Walking into a blast just because we have nothing better
+         to do is what kills the CPU when its goals are all temporarily
+         unreachable. ---- */
+      return pickControlledStep(view, me, danger, recentDanger, t) || idle();
     },
+    _debug(){ return { plan }; },
   };
 }
 
@@ -590,17 +606,18 @@ function walkToward(me, [nx, ny]){
 }
 
 /* Wander toward a tile with more exits than my current one.  Only used as
-   a last-resort fallback after no real plan is available. */
+   a last-resort fallback after no real plan is available.  Crucial: refuse
+   ANY tile that's inside a blast — even if safe-on-arrival.  Wandering into
+   a blast just because we have nothing better to do is exactly how the CPU
+   ends up dead next to its own bomb when there are no goals beyond the
+   blast zone. */
 function pickControlledStep(view, me, danger, recentDanger, t){
-  const speed = Math.max(me.speed, 1);
   const myTx = Math.floor(me.x), myTy = Math.floor(me.y);
   let best = null;
   for(const [dx, dy] of CARDINALS){
     const nx = myTx + dx, ny = myTy + dy;
     if(!isPassable(view, me, nx, ny)) continue;
-    const arriveT = 1 / speed;
-    const blastT = danger.get(nx + ',' + ny);
-    if(blastT !== undefined && blastT < arriveT + SAFETY_MARGIN) continue;
+    if(danger.has(nx + ',' + ny)) continue;
     const score = exitCount(view, me, nx, ny)
                 - recentDangerPenalty(recentDanger, nx + ',' + ny, t) * 0.5;
     if(!best || score > best.score){
