@@ -11,6 +11,9 @@ import {
   MSG_INPUT, MSG_STATE, MSG_FIELD, MSG_EVENTS, MSG_ROUNDEND,
   encodeState, encodeField,
 } from '../net/protocol.js';
+import {
+  sfxBombPlace, sfxExplosion, sfxPickup, sfxDeath, sfxShield, sfxRoundEnd,
+} from '../audio.js';
 
 const SNAPSHOT_INTERVAL_MS = 50;       // 20 Hz state broadcast
 const NET_INPUT_INTERVAL_MS = 50;      // client → host input cadence
@@ -184,6 +187,7 @@ function gameShell(match, initialSecs){
 function scheduleRoundEnd(ctx, result){
   if(endTransitionHandle != null) return;
   stopTimer();
+  if(result.winnerIdx != null) sfxRoundEnd();
   endTransitionHandle = setTimeout(() => {
     endTransitionHandle = null;
     ctx.recordRound(result);
@@ -558,10 +562,26 @@ function handleEvents(events, view, engine){
     if(ev.type === 'boxBroken'){
       const t = view.tileEls[ev.y * view.fieldWidth + ev.x];
       if(t){ t.classList.remove('crate'); }
+    } else if(ev.type === 'bombPlaced'){
+      sfxBombPlace();
+    } else if(ev.type === 'bombDetonated'){
+      sfxExplosion();
+      /* Tiny screen shake on the board.  Add class, remove on animationend
+         so repeated explosions retrigger crisply. */
+      const board = view.bombLayer?.parentElement;
+      if(board){
+        board.classList.remove('boom-shake');
+        void board.offsetWidth;        // force reflow so the class re-applies
+        board.classList.add('boom-shake');
+      }
     } else if(ev.type === 'playerKilled'){
+      sfxDeath();
       const card = view.hudByIdx.get(ev.idx);
       if(card) card.classList.add('dead');
+    } else if(ev.type === 'shieldUsed'){
+      sfxShield();
     } else if(ev.type === 'pickupTaken'){
+      sfxPickup();
       const card = view.hudByIdx.get(ev.idx);
       if(card){
         const pups = card.querySelector('[data-pups]');
