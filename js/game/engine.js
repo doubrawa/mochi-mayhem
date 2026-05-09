@@ -17,9 +17,12 @@ import { createCpuController } from './cpu.js';
 
 const HUMAN_SCHEMES = ['wasd', 'arrows', 'ijkl', 'numpad'];
 
-export function createEngine(lobby, hooks){
+export function createEngine(lobby, hooks, opts = {}){
   const presetId = lobby.fieldSize in FIELD_PRESETS ? lobby.fieldSize : 'medium';
+  /* 'remote' players are humans driven by a network peer.  Treated like
+     'human' with scheme=null in the input loop; action comes from opts.remoteInputProvider. */
   const activePlayers = lobby.players.filter(p => p.mode !== 'off');
+  const remoteInputProvider = opts.remoteInputProvider || (() => ({ dx:0, dy:0, bomb:false }));
   const field = createField(presetId, activePlayers.length);
   const input = createInput();
   const timeLimit = lobby.timeLimit || 0;     // 0 = infinite
@@ -104,13 +107,18 @@ export function createEngine(lobby, hooks){
         const action = cpu.decide(p, cpuView);
         const wasBomb = prevBomb.get(p.idx) || false;
         r = {
-          dx: action.dx,
-          dy: action.dy,
-          bomb: action.bomb,
+          dx: action.dx, dy: action.dy, bomb: action.bomb,
           bombEdge: action.bomb && !wasBomb,
         };
+      } else if(p.type === 'remote'){
+        const action = remoteInputProvider(p.idx) || { dx:0, dy:0, bomb:false };
+        const wasBomb = prevBomb.get(p.idx) || false;
+        r = {
+          dx: action.dx | 0, dy: action.dy | 0, bomb: !!action.bomb,
+          bombEdge: !!action.bomb && !wasBomb,
+        };
       } else {
-        continue;   // 'off' — never reached because we filtered, but safe
+        continue;   // 'off' — filtered above, but safe
       }
       prevBomb.set(p.idx, r.bomb);
 

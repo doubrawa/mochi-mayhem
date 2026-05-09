@@ -5,8 +5,15 @@ import {
 } from '../sprites.js';
 import { createEngine } from '../game/engine.js';
 import { TILE } from '../game/field.js';
-import { SCHEME_LABEL } from '../game/input.js';
+import { SCHEME_LABEL, createInput } from '../game/input.js';
 import { HOT_THRESHOLD } from '../game/bombs.js';
+import {
+  MSG_INPUT, MSG_STATE, MSG_FIELD, MSG_EVENTS, MSG_ROUNDEND,
+  encodeState, encodeField,
+} from '../net/protocol.js';
+
+const SNAPSHOT_INTERVAL_MS = 50;       // 20 Hz state broadcast
+const NET_INPUT_INTERVAL_MS = 50;      // client → host input cadence
 
 const TS = 42;                 // tile size in px — matches CSS .board --ts
 const PLAYER_SIZE = 40;        // sprite display size in px
@@ -17,6 +24,7 @@ const PICKUP_SIZE = 28;
 let engine = null;
 let timerHandle = null;
 let endTransitionHandle = null;
+let netHandles = null;     // host: { broadcastInterval, off }; client: { sendInterval, input, off }
 
 const ROUND_END_DELAY_MS = 1500;
 
@@ -28,63 +36,61 @@ const SCHEME_KEY_LABEL = {
 };
 
 export function render(ctx){
+  if(ctx.net?.role === 'client') return renderClient(ctx);
+  return renderHostOrLocal(ctx);
+}
+
+function renderHostOrLocal(ctx){
   const { app, navigate, lobby, match } = ctx;
   const section = document.createElement('section');
   section.className = 'screen active';
   const initialSecs = lobby.timeLimit || 0;
+  const isHost = ctx.net?.role === 'host';
 
-  section.innerHTML = `
-    <div class="gp">
-      <div class="gpcol left" id="leftHud"></div>
-
-      <div class="stage">
-        <div class="topbar">
-          <div class="round-pill">Round ${match.current} / ${match.rounds}</div>
-          <div class="timer"><span class="dot"></span><span data-timer>${initialSecs > 0 ? formatTime(initialSecs) : '∞'}</span></div>
-          <div class="live-pill"><span class="blip"></span>LIVE</div>
-          <button class="end-round" data-action="end-round">Forfeit ▶</button>
-        </div>
-
-        <div class="board" id="board"></div>
-
-        <div class="pup-row">
-          <h4><span class="pip"></span>Power-ups · all 12 pickups</h4>
-          <div class="pup-grid" id="pupGrid"></div>
-        </div>
-      </div>
-
-      <div class="gpcol right" id="rightHud"></div>
-    </div>
-  `;
+  section.innerHTML = gameShell(match, initialSecs);
   app.appendChild(section);
+
+  /* Host-side input cache: keyed by player idx, set as guests' MSG_INPUT
+     messages arrive.  The engine reads from here for 'remote' players. */
+  const remoteInputs = new Map();
 
   /* Engine. */
   const view = {};
   engine = createEngine(lobby, {
-    onEvents: (events) => handleEvents(events, view, engine),
+    onEvents: (events) => {
+      handleEvents(events, view, engine);
+      if(isHost && events?.length){
+        ctx.net.host.broadcast({ t: MSG_EVENTS, events: serializeEvents(events) });
+      }
+    },
     onRender: () => {
       renderPlayers(view, engine.players, engine.elapsed);
       renderBombs(view, engine.bombs);
       renderExplosions(view, engine.explosions);
       renderPickups(view, engine.pickups);
     },
-    onRoundEnd: (result) => scheduleRoundEnd(ctx, result),
+    onRoundEnd: (result) => {
+      if(isHost){
+        ctx.net.host.broadcast({ t: MSG_ROUNDEND, result: serializeResult(result) });
+      }
+      scheduleRoundEnd(ctx, result);
+    },
+  }, {
+    remoteInputProvider: (idx) => remoteInputs.get(idx) || { dx:0, dy:0, bomb:false },
   });
 
-  /* Build static board + layers. */
+  /* Build static board + layers + HUD. */
   const boardEl = section.querySelector('#board');
   buildBoard(boardEl, engine.field, view);
   buildPowerupRow(section.querySelector('#pupGrid'));
-
-  /* HUD cards. */
+  view.hudByIdx = new Map();
   const lh = section.querySelector('#leftHud');
   const rh = section.querySelector('#rightHud');
-  view.hudByIdx = new Map();
   const half = Math.ceil(engine.players.length / 2);
   engine.players.slice(0, half).forEach(p => { const c = buildHudCard(p, match); view.hudByIdx.set(p.idx, c); lh.appendChild(c); });
   engine.players.slice(half).forEach(p => { const c = buildHudCard(p, match); view.hudByIdx.set(p.idx, c); rh.appendChild(c); });
 
-  /* Visual timer. */
+  /* Timer. */
   const timerEl = section.querySelector('[data-timer]');
   if(initialSecs > 0){
     timerHandle = setInterval(() => {
@@ -97,15 +103,82 @@ export function render(ctx){
   /* Forfeit. */
   section.querySelector('[data-action="end-round"]').addEventListener('click', () => {
     if(endTransitionHandle != null) return;
-    scheduleRoundEnd(ctx, {
-      winnerIdx: null,
-      durationSec: engine ? engine.elapsed : 0,
-      kos: new Map(),
-      reason: 'forfeit',
-    });
+    const result = { winnerIdx: null, durationSec: engine ? engine.elapsed : 0, kos: new Map(), reason: 'forfeit' };
+    if(isHost) ctx.net.host.broadcast({ t: MSG_ROUNDEND, result: serializeResult(result) });
+    scheduleRoundEnd(ctx, result);
   });
 
+  /* Host network setup: broadcast field once, then state every interval, and
+     wire MSG_INPUT messages from guests into remoteInputs. */
+  if(isHost){
+    ctx.net.host.broadcast({ t: MSG_FIELD, ...encodeField(engine.field) });
+    /* Replace lobby's onMessage handler so MSG_INPUT during the match goes
+       straight into our input cache. */
+    ctx.net._onClientMessage = (guest, msg) => {
+      if(msg.t === MSG_INPUT){
+        remoteInputs.set(guest.idx, { dx: msg.dx | 0, dy: msg.dy | 0, bomb: !!msg.bomb });
+      }
+    };
+    /* PeerJS connections are already open; replace per-conn data handlers. */
+    for(const g of ctx.net.host.guests.values()){
+      g.conn.removeAllListeners?.('data');
+      g.conn.on?.('data', (raw) => {
+        const m = typeof raw === 'string' ? safeParse(raw) : raw;
+        if(m && ctx.net._onClientMessage) ctx.net._onClientMessage(g, m);
+      });
+    }
+    const broadcastInterval = setInterval(() => {
+      if(!engine) return;
+      ctx.net.host.broadcast({ t: MSG_STATE, ...encodeState(engine) });
+    }, SNAPSHOT_INTERVAL_MS);
+    netHandles = { broadcastInterval };
+  }
+
   engine.start();
+}
+
+function safeParse(s){ try { return JSON.parse(s); } catch { return null; } }
+
+/* Some engine events carry Map (kos in roundEnd).  Serialize for the wire. */
+function serializeResult(r){
+  return {
+    winnerIdx: r.winnerIdx,
+    durationSec: r.durationSec,
+    kos: r.kos ? Array.from(r.kos.entries()) : [],
+    reason: r.reason,
+  };
+}
+function serializeEvents(events){
+  /* Already plain JSON, just strip non-serializable bits.  Bomb objects are
+     forwarded as id+x+y for renderer's box-broken / pickup-taken. */
+  return events.map(ev => {
+    if(ev.type === 'bombDetonated') return { type: 'bombDetonated' };
+    if(ev.type === 'bombPlaced')    return { type: 'bombPlaced' };
+    if(ev.type === 'pickupDropped') return { type: 'pickupDropped' };
+    return ev;
+  });
+}
+
+function gameShell(match, initialSecs){
+  return `
+    <div class="gp">
+      <div class="gpcol left" id="leftHud"></div>
+      <div class="stage">
+        <div class="topbar">
+          <div class="round-pill">Round ${match.current} / ${match.rounds}</div>
+          <div class="timer"><span class="dot"></span><span data-timer>${initialSecs > 0 ? formatTime(initialSecs) : '∞'}</span></div>
+          <div class="live-pill"><span class="blip"></span>LIVE</div>
+          <button class="end-round" data-action="end-round">Forfeit ▶</button>
+        </div>
+        <div class="board" id="board"></div>
+        <div class="pup-row">
+          <h4><span class="pip"></span>Power-ups · all 12 pickups</h4>
+          <div class="pup-grid" id="pupGrid"></div>
+        </div>
+      </div>
+      <div class="gpcol right" id="rightHud"></div>
+    </div>
+  `;
 }
 
 function scheduleRoundEnd(ctx, result){
@@ -122,6 +195,154 @@ export function teardown(){
   stopTimer();
   if(endTransitionHandle != null){ clearTimeout(endTransitionHandle); endTransitionHandle = null; }
   if(engine){ engine.stop(); engine = null; }
+  if(netHandles){
+    if(netHandles.broadcastInterval) clearInterval(netHandles.broadcastInterval);
+    if(netHandles.sendInterval) clearInterval(netHandles.sendInterval);
+    if(netHandles.input) netHandles.input.teardown?.();
+    netHandles = null;
+  }
+}
+
+/* ============ CLIENT MODE ============
+   No engine.  We show the same DOM but feed the renderers from network
+   snapshots.  Local input is captured and forwarded to the host. */
+function renderClient(ctx){
+  const { app, navigate, lobby, match } = ctx;
+  const section = document.createElement('section');
+  section.className = 'screen active';
+  const initialSecs = lobby.timeLimit || 0;
+  section.innerHTML = gameShell(match, initialSecs);
+  app.appendChild(section);
+
+  /* The remote-game container — same surface the renderers expect. */
+  const remote = createRemoteGame(lobby);
+
+  const view = {};
+  /* HUD now, board on receipt of MSG_FIELD. */
+  view.hudByIdx = new Map();
+  const lh = section.querySelector('#leftHud');
+  const rh = section.querySelector('#rightHud');
+  const half = Math.ceil(remote.players.length / 2);
+  remote.players.slice(0, half).forEach(p => { const c = buildHudCard(p, match); view.hudByIdx.set(p.idx, c); lh.appendChild(c); });
+  remote.players.slice(half).forEach(p => { const c = buildHudCard(p, match); view.hudByIdx.set(p.idx, c); rh.appendChild(c); });
+  buildPowerupRow(section.querySelector('#pupGrid'));
+  const boardEl = section.querySelector('#board');
+
+  /* Local input: send my action to host every NET_INPUT_INTERVAL_MS. */
+  const input = createInput();
+  let prevBomb = false;
+  /* Default scheme is wasd for the local human; we treat the client as if it
+     were Player 1 of its own keyboard. */
+  const sendInterval = setInterval(() => {
+    const r = input.read('wasd', prevBomb);
+    prevBomb = r.bomb;
+    ctx.net.client.send({ t: MSG_INPUT, dx: r.dx, dy: r.dy, bomb: r.bomb });
+  }, NET_INPUT_INTERVAL_MS);
+
+  /* Wire host messages — replace whatever online-lobby set. */
+  ctx.net.client.conn.removeAllListeners?.('data');
+  ctx.net.client.conn.on?.('data', (raw) => {
+    const m = typeof raw === 'string' ? safeParse(raw) : raw;
+    if(!m) return;
+    handleClientNetMsg(m, ctx, view, remote, boardEl, section);
+  });
+
+  /* Forfeit: client just sends a leave message and goes home. */
+  section.querySelector('[data-action="end-round"]').addEventListener('click', () => {
+    navigate('title');
+  });
+
+  /* Visual timer mirrors received elapsed against initialSecs. */
+  const timerEl = section.querySelector('[data-timer]');
+  if(initialSecs > 0){
+    timerHandle = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil(initialSecs - remote.elapsed));
+      timerEl.textContent = formatTime(remaining);
+    }, 250);
+  }
+
+  netHandles = { sendInterval, input };
+}
+
+function handleClientNetMsg(m, ctx, view, remote, boardEl, section){
+  if(m.t === MSG_FIELD){
+    /* Build the board now that we know the layout. */
+    const f = { width: m.width, height: m.height, tiles: m.tiles, at(x,y){
+      if(x<0||y<0||x>=this.width||y>=this.height) return TILE.PILLAR;
+      return this.tiles[y*this.width + x];
+    }, set(x,y,v){
+      if(x<0||y<0||x>=this.width||y>=this.height) return;
+      this.tiles[y*this.width + x] = v;
+    }};
+    remote.field = f;
+    buildBoard(boardEl, f, view);
+  } else if(m.t === MSG_STATE){
+    remote.applySnapshot(m);
+    /* Render once per snapshot. */
+    renderPlayers(view, remote.players, remote.elapsed);
+    renderBombs(view, remote.bombs);
+    renderExplosions(view, remote.explosions);
+    renderPickups(view, remote.pickups);
+  } else if(m.t === MSG_EVENTS){
+    /* Forward to existing event handler. */
+    handleEvents(m.events, view, remote);
+  } else if(m.t === MSG_ROUNDEND){
+    const result = {
+      winnerIdx: m.result.winnerIdx,
+      durationSec: m.result.durationSec,
+      kos: new Map(m.result.kos || []),
+      reason: m.result.reason,
+    };
+    /* For the client, just navigate to the title at round-end since match
+       state is host-side only.  v2 will sync match scoring. */
+    setTimeout(() => ctx.navigate('title'), ROUND_END_DELAY_MS);
+  }
+}
+
+/* Fake engine surface for the client.  Renderers read .field, .players,
+   .bombs, .pickups, .explosions, .elapsed — same shape, no tick logic. */
+function createRemoteGame(lobby){
+  const active = lobby.players.filter(p => p.mode !== 'off');
+  const players = active.map((cfg, i) => ({
+    idx: i, charId: cfg.id, name: cfg.name, type: cfg.mode, scheme: null,
+    x: 0, y: 0, alive: true,
+    ghostUntil: 0, slowUntil: 0, shieldStacks: 0,
+    bombMax: 1, bombsLive: 0, range: 2,
+    hasRemote:false, hasSuper:false, hasKick:false, hasMagnet:false,
+    passthrough: new Set(), collected: [],
+  }));
+  return {
+    field: null,
+    players,
+    bombs: [],
+    pickups: [],
+    explosions: [],
+    elapsed: 0,
+    applySnapshot(snap){
+      this.elapsed = snap.e || 0;
+      for(const wp of snap.p || []){
+        const p = players.find(x => x.idx === wp.i);
+        if(!p) continue;
+        p.x = wp.x; p.y = wp.y;
+        p.alive = !!wp.a;
+        p.ghostUntil = wp.g ? this.elapsed + 1 : 0;
+        p.slowUntil  = wp.s ? this.elapsed + 1 : 0;
+        p.shieldStacks = wp.sh ? 1 : 0;
+      }
+      this.bombs.length = 0;
+      for(const b of snap.b || []){
+        this.bombs.push({ id: b.i, x: b.x, y: b.y, fuse: b.hot ? 0.5 : 2.5, range: 2, detonating: false });
+      }
+      this.pickups.length = 0;
+      for(const pu of snap.pu || []){
+        this.pickups.push({ id: pu.i, type: pu.t, x: pu.x, y: pu.y });
+      }
+      this.explosions.length = 0;
+      for(const ex of snap.ex || []){
+        this.explosions.push({ ttl: ex.ttl, segments: (ex.s || []).map(s => ({ x: s.x, y: s.y, kind: s.k })) });
+      }
+    },
+  };
 }
 
 function stopTimer(){ if(timerHandle){ clearInterval(timerHandle); timerHandle = null; } }

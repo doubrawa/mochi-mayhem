@@ -46,9 +46,9 @@ export function render(ctx){
           LOCAL MULTIPLAYER
           <span class="arr">›</span>
         </button>
-        <button class="pillbtn" data-action="online-mp" disabled>
+        <button class="pillbtn" data-action="online-mp">
           <span class="ic" data-spr="ico-net" data-size="18"></span>
-          ONLINE · COMING SOON
+          ONLINE MULTIPLAYER
           <span class="arr">›</span>
         </button>
         <button class="pillbtn" data-action="settings">
@@ -106,6 +106,7 @@ export function render(ctx){
     btn.addEventListener('click', () => {
       const a = btn.getAttribute('data-action');
       if(a === 'play' || a === 'local-mp') navigate('lobby');
+      else if(a === 'online-mp') navigate('online-lobby');
       else if(a === 'settings') alert('Settings — coming soon');
       else if(a === 'highscores') alert('Highscores — coming soon');
     });
