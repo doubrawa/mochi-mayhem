@@ -157,7 +157,7 @@ img.spr,canvas.spr{image-rendering:pixelated;display:block}
 .cloud{position:absolute;animation:drift 10s ease-in-out infinite}
 .cloud svg{filter:drop-shadow(0 6px 0 rgba(43,33,80,.06))}
 
-.logo-wrap{position:absolute;left:50%;top:80px;transform:translateX(-50%);text-align:center;z-index:5}
+.logo-wrap{position:absolute;left:50%;top:48px;transform:translateX(-50%);text-align:center;z-index:5}
 .bigtitle{
   font-family:'Fredoka',sans-serif;font-weight:700;
   font-size:128px;line-height:.92;letter-spacing:-.02em;
@@ -183,7 +183,7 @@ img.spr,canvas.spr{image-rendering:pixelated;display:block}
 .logo-deco.spark{right:-40px;top:-20px;animation:sparkle .6s steps(2) infinite}
 .logo-deco.heart{left:-110px;top:60px;animation:hover6 2s ease-in-out infinite;transform:rotate(-15deg)}
 
-.menu{position:absolute;left:50%;top:430px;transform:translateX(-50%);display:flex;flex-direction:column;gap:14px;z-index:6;width:460px}
+.menu{position:absolute;left:50%;top:340px;transform:translateX(-50%);display:flex;flex-direction:column;gap:10px;z-index:6;width:460px}
 .pillbtn{
   font-family:'Fredoka',sans-serif;font-weight:600;font-size:20px;
   background:#fff;color:var(--ink);
@@ -215,7 +215,7 @@ img.spr,canvas.spr{image-rendering:pixelated;display:block}
 .mascot.m4{right:5%;animation:hover6 2.9s ease-in-out infinite .4s}
 .mascot .shadow{position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);width:88px;height:14px;background:rgba(43,33,80,.18);border-radius:50%;filter:blur(2px)}
 
-.ground{position:absolute;left:0;right:0;bottom:0;height:120px;background:linear-gradient(180deg,#cfeebf 0%,#a6d99a 100%);border-top:3px solid var(--ink)}
+.ground{position:absolute;left:0;right:0;bottom:0;height:120px;background:linear-gradient(180deg,#cfeebf 0%,#a6d99a 100%);border-top:3px solid var(--ink);z-index:1}
 .ground .grass{position:absolute;left:0;right:0;top:-14px;height:24px;display:flex;align-items:flex-end;justify-content:space-around;pointer-events:none}
 .ground .grass span{display:block;width:6px;height:14px;background:var(--leaf);border-radius:6px 6px 0 0}
 .ground .flower{position:absolute;bottom:24px;width:18px;height:24px}

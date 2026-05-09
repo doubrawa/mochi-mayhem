@@ -63,13 +63,21 @@ export function render(ctx){
           <span class="ic" data-spr="ico-back"></span>
           Back to Menu
         </button>
-        ${matchOver ? '' : (ctx.net?.role === 'client'
+        ${ctx.net?.role === 'client' && !matchOver
           ? `<div style="font-family:'Fredoka';font-weight:600;font-size:16px;color:var(--ink2);padding:18px 26px;background:#fff;border:3px solid var(--ink);border-radius:999px;box-shadow:0 4px 0 var(--ink)">Waiting for host…</div>`
+          : ctx.net?.role === 'client' && matchOver
+          ? ''
+          : matchOver
+          ? `<button class="pillbtn primary" data-action="rematch">
+              <span class="ic" data-spr="ico-play"></span>
+              Rematch
+              <span class="arr">›</span>
+            </button>`
           : `<button class="pillbtn primary" data-action="next">
               <span class="ic" data-spr="ico-play"></span>
               Next Round
               <span class="arr">›</span>
-            </button>`)}
+            </button>`}
       </div>
     </div>
   `;
@@ -138,6 +146,17 @@ export function render(ctx){
     if(ctx.net?.role === 'host'){
       try { ctx.net.host.broadcast({ t: MSG_NEXTROUND }); } catch {}
     }
+    navigate('game');
+  });
+  /* Rematch: clear the finished match so navigate('game') starts a fresh
+     one with the same lobby settings. */
+  const rematchBtn = section.querySelector('[data-action="rematch"]');
+  if(rematchBtn) rematchBtn.addEventListener('click', () => {
+    if(ctx.net?.role === 'host'){
+      try { ctx.net.host.broadcast({ t: MSG_NEXTROUND }); } catch {}
+    }
+    ctx.match = null;
+    ctx.lastRound = null;
     navigate('game');
   });
 }
