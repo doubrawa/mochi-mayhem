@@ -81,8 +81,11 @@ export function createCpuController(level = 'nice'){
       /* ---- P3 — non-bomb goal already reached → forget it. ---- */
       if(goal && goal.action !== 'bomb' && tileReached(me, goal)) goal = null;
 
-      /* ---- P4 — replan goal if we're due. ---- */
-      if(!goal || t - lastPlanAt > REPLAN_INTERVAL){
+      /* ---- P4 — replan only when we have no goal, or the existing one
+         became unreachable.  Time-based replanning caused ping-pong: every
+         0.2 s the CPU would pick whichever neighbour was the next "closest
+         explore tile" and walk there, then immediately switch back. ---- */
+      if(!goal){
         lastPlanAt = t;
         const fresh = planGoal(view, me, danger, isMean);
         if(fresh) goal = fresh;
@@ -99,7 +102,8 @@ export function createCpuController(level = 'nice'){
         }
         const path = pathFindSafe(view, me, danger, goal.tx, goal.ty);
         if(path && path.firstStep) return walkToward(me, path.firstStep);
-        /* Goal isn't reachable safely right now — drop it. */
+        /* Goal isn't reachable safely right now — drop it; next tick will
+           replan from scratch. */
         goal = null;
       }
 
@@ -180,19 +184,34 @@ function pathFindSafe(view, me, danger, targetTx, targetTy){
   return reach.get(targetTx + ',' + targetTy) || null;
 }
 
-/* Closest tile that's not in any active blast — the place to wait it out. */
+/* Best place to flee to, in two tiers:
+   1. Closest permanently-safe tile (not in any active blast).
+   2. If none is reachable, the tile with the LATEST blast time among the
+      reachable set — that buys the most time to plan a further escape on
+      the next tick.  Better than freezing inside the blast. */
 function findFleePath(view, me, danger){
   const reach = bfsSafe(view, me, danger);
-  let best = null;
+  let bestSafe = null;
+  let bestDelayed = null;
   for(const [k, r] of reach){
     if(r.dist === 0) continue;
-    if(danger.has(k)) continue;       // still inside a blast — keep looking
-    if(!best || r.dist < best.dist){
-      const [x, y] = k.split(',').map(Number);
-      best = { tx: x, ty: y, dist: r.dist, firstStep: r.firstStep };
+    const blastT = danger.get(k);
+    if(blastT === undefined){
+      if(!bestSafe || r.dist < bestSafe.dist){
+        const [x, y] = k.split(',').map(Number);
+        bestSafe = { tx: x, ty: y, dist: r.dist, firstStep: r.firstStep };
+      }
+    } else {
+      /* Higher blastT (more time before this tile explodes) wins; tie-break
+         by lower distance.  Score combines both. */
+      const score = blastT - r.dist * 0.15;
+      if(!bestDelayed || score > bestDelayed.score){
+        const [x, y] = k.split(',').map(Number);
+        bestDelayed = { tx: x, ty: y, dist: r.dist, firstStep: r.firstStep, score };
+      }
     }
   }
-  return best;
+  return bestSafe || bestDelayed;
 }
 
 /* Could I plant a bomb at (tx,ty) and still find ≥2 distinct safe escape
@@ -242,14 +261,18 @@ function countSafeEscapes(view, me, fromTx, fromTy, danger, needed){
 /* Score every reachable safe tile.  Categories:
 
      pickup       value - dist*4         (skip negative-value pickups)
-     bomb-attack  crates*18
-                  + cratesNearEnemy*10   (path-clear bonus)
-                  + enemyHits*180-240    (mean variant amps this)
+     bomb-attack  crates*30
+                  + cratesNearEnemy*15   (path-clear bonus)
+                  + enemyHits*300-400    (mean variant amps this)
                   - dist*5
+                  Includes the current tile (dist=0) — the CPU may bomb where
+                  it stands.
      pursue       (mean) tiles 2-5 from an enemy get a chase bonus
-     explore      tiny floor score so the CPU never freezes
+     explore      far tiles get higher score, encouraging long-range commits
+                  rather than ping-ponging between adjacent tiles
 
-   Highest score wins.  Ties break by lower distance via stable sort. */
+   Highest score wins.  Strategic actions are weighted strongly above
+   exploration so any single-crate bomb beats wandering. */
 function planGoal(view, me, danger, isMean){
   const reach = bfsSafe(view, me, danger);
   const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
@@ -257,18 +280,17 @@ function planGoal(view, me, danger, isMean){
   const candidates = [];
 
   for(const [k, r] of reach){
-    if(r.dist === 0) continue;
     const [x, y] = k.split(',').map(Number);
 
     /* Bomb-attack candidates: even tiles in some other bomb's blast can be
        valid spots, because the attack BFS is short-term.  But every other
        goal type (pickup/pursue/explore) is a "stand or pause here" plan, and
-       must be on a permanently-safe tile or the CPU will walk into a blast
-       and wait for it to fire. */
+       must be on a permanently-safe tile. */
     const tileSafeToStay = !danger.has(k);
 
-    /* PICKUP — only if the tile won't explode under us. */
-    if(tileSafeToStay){
+    /* PICKUP — only on tiles that won't explode under us, and only if we
+       aren't already on top of it (dist=0 = nothing to walk to). */
+    if(tileSafeToStay && r.dist > 0){
       const pu = view.pickups.find(p => p.x === x && p.y === y);
       if(pu){
         const value = PICKUP_VALUE[pu.type] ?? 30;
@@ -278,7 +300,8 @@ function planGoal(view, me, danger, isMean){
       }
     }
 
-    /* BOMB-ATTACK at this tile */
+    /* BOMB-ATTACK at this tile (including the current tile — bombing where
+       we stand is a perfectly valid plan). */
     if(canSafelyBomb(view, me, x, y, danger)){
       const segs = computeExplosionSegments(view.field, x, y, me.range);
       let crates = 0, enemyHits = 0, cratesNearEnemy = 0;
@@ -293,30 +316,31 @@ function planGoal(view, me, danger, isMean){
         if(enemyTiles.has(s.x + ',' + s.y)) enemyHits++;
       }
       if(crates > 0 || enemyHits > 0){
-        const score = crates * 18
-                    + cratesNearEnemy * 10
-                    + enemyHits * (isMean ? 240 : 180)
-                    - r.dist * 5;
+        const score = crates * 22
+                    + cratesNearEnemy * 12
+                    + enemyHits * (isMean ? 260 : 200)
+                    - r.dist * 6;
         candidates.push({ tx: x, ty: y, action: 'bomb', score });
       }
     }
 
     /* PURSUE — close, but not adjacent (2-5 tiles); mean only. */
-    if(tileSafeToStay && isMean && enemies.length > 0){
+    if(tileSafeToStay && r.dist > 0 && isMean && enemies.length > 0){
       let minToEnemy = Infinity;
       for(const e of enemies){
         const d = Math.abs(x - Math.floor(e.x)) + Math.abs(y - Math.floor(e.y));
         if(d < minToEnemy) minToEnemy = d;
       }
       if(minToEnemy >= 2 && minToEnemy <= 5){
-        candidates.push({ tx: x, ty: y, action: 'walk', score: 60 - minToEnemy * 8 - r.dist * 3 });
+        candidates.push({ tx: x, ty: y, action: 'walk', score: 80 - minToEnemy * 8 - r.dist * 3 });
       }
     }
 
-    /* EXPLORE — tiny score so the CPU keeps moving when no big goal exists.
-       Permanently-safe destinations only. */
-    if(tileSafeToStay){
-      candidates.push({ tx: x, ty: y, action: 'walk', score: Math.max(2, 14 - r.dist * 2) });
+    /* EXPLORE — far tiles score higher than close ones.  This breaks the
+       ping-pong between adjacent tiles: once we commit to walking 8 tiles
+       away, we won't flip back to "the tile next to me". */
+    if(tileSafeToStay && r.dist > 0){
+      candidates.push({ tx: x, ty: y, action: 'walk', score: Math.min(20, r.dist) });
     }
   }
 
