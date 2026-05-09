@@ -80,9 +80,9 @@ export function applyPickup(player, type, ctx){
     case 'curse':
       player.slowUntil = Math.max(player.slowUntil || 0, ctx.elapsed + CURSE_DURATION);
       break;
-    /* Mend — Heart.  +1 shield stack (effectively a free extra life). */
+    /* Mend — Heart.  Restores one heart (does not exceed maxHp). */
     case 'mend':
-      player.shieldStacks = (player.shieldStacks || 0) + 1;
+      player.hp = Math.min(player.maxHp || 3, (player.hp || 0) + 1);
       break;
   }
   /* Maintain a list of all collected types for the HUD display. */

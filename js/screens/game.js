@@ -329,6 +329,7 @@ function createRemoteGame(lobby){
         if(!p) continue;
         p.x = wp.x; p.y = wp.y;
         p.alive = !!wp.a;
+        p.hp = wp.hp ?? p.hp ?? 3;
         p.ghostUntil = wp.g ? this.elapsed + 1 : 0;
         p.slowUntil  = wp.s ? this.elapsed + 1 : 0;
         p.shieldStacks = wp.sh ? 1 : 0;
@@ -574,10 +575,13 @@ function handleEvents(events, view, engine){
         void board.offsetWidth;        // force reflow so the class re-applies
         board.classList.add('boom-shake');
       }
+    } else if(ev.type === 'playerHit'){
+      const card = view.hudByIdx.get(ev.idx);
+      if(card) refreshHudHearts(card, ev.hp);
     } else if(ev.type === 'playerKilled'){
       sfxDeath();
       const card = view.hudByIdx.get(ev.idx);
-      if(card) card.classList.add('dead');
+      if(card){ card.classList.add('dead'); refreshHudHearts(card, 0); }
     } else if(ev.type === 'shieldUsed'){
       sfxShield();
     } else if(ev.type === 'pickupTaken'){
@@ -592,6 +596,11 @@ function handleEvents(events, view, engine){
           slot.style.background = meta.bg;
           slot.appendChild(pupSvg(ev.pickup.type, 18));
           pups.appendChild(slot);
+        }
+        /* Mend restores HP — refresh hearts using the live engine player. */
+        if(ev.pickup.type === 'mend'){
+          const p = engine?.players?.find(x => x.idx === ev.idx);
+          if(p) refreshHudHearts(card, p.hp);
         }
       }
     }
@@ -661,12 +670,27 @@ function buildHudCard(p, match){
   const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = wins > 0 ? `${wins}W` : '—';
   row1.appendChild(face); row1.appendChild(nm); row1.appendChild(sc);
 
-  /* Heart row — 3 hearts. We don't have HP yet; all start full. */
+  /* Heart row — reflects current HP, lost ones grayed out. */
   const hearts = card.querySelector('[data-hearts]');
-  for(let i = 0; i < 3; i++){
+  const hp = p.hp ?? 3;
+  const maxHp = p.maxHp ?? 3;
+  for(let i = 0; i < maxHp; i++){
     const slot = document.createElement('span');
+    if(i >= hp) slot.classList.add('lost');
     slot.appendChild(heartSvg(18));
     hearts.appendChild(slot);
   }
   return card;
+}
+
+function refreshHudHearts(card, hp, maxHp = 3){
+  const hearts = card.querySelector('[data-hearts]');
+  if(!hearts) return;
+  hearts.innerHTML = '';
+  for(let i = 0; i < maxHp; i++){
+    const slot = document.createElement('span');
+    if(i >= hp) slot.classList.add('lost');
+    slot.appendChild(heartSvg(18));
+    hearts.appendChild(slot);
+  }
 }
