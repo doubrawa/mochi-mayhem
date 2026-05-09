@@ -313,7 +313,11 @@ export function createEngine(lobby, hooks, opts = {}){
               pendingEvents.push({ type: 'shieldUsed', idx: p.idx });
               continue;
             }
-            p.hp = Math.max(0, (p.hp || 0) - 1);
+            /* Classic Bomberman tradition: your own bomb is always lethal.
+               Shield (consumed above) still saves you, but if you take the
+               hit raw, all hearts go at once. */
+            const selfHit = b.ownerIdx === p.idx;
+            p.hp = selfHit ? 0 : Math.max(0, (p.hp || 0) - 1);
             p.invulnerableUntil = elapsed + 0.8;
             pendingEvents.push({ type: 'playerHit', idx: p.idx, hp: p.hp, by: b.ownerIdx });
             if(p.hp <= 0){

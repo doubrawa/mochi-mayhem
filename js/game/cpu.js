@@ -19,9 +19,9 @@ import { computeExplosionSegments, FUSE_SECONDS } from './bombs.js';
 
 const REPLAN_INTERVAL = 0.4;        // seconds between full goal re-plans
 const ARRIVE_EPSILON  = 0.18;       // tiles — close enough to be "on" a tile center
-const SAFETY_BUFFER   = 0.5;        // seconds of slack we want before any nearby boom
-const BFS_LIMIT       = 12;         // BFS hop cap (cheap; 4 CPUs * ~12 tiles is nothing)
-const BOMB_COOLDOWN_S = 0.6;        // throttle bomb-key presses
+const SAFETY_BUFFER   = 1.0;        // seconds of slack before nearby boom — own-bombs are lethal so we want margin
+const BFS_LIMIT       = 12;
+const BOMB_COOLDOWN_S = 0.6;
 
 export function createCpuController(level = 'nice'){
   let target = null;          // {tx, ty} we're walking toward
@@ -73,18 +73,18 @@ export function createCpuController(level = 'nice'){
         plannedBomb = plan.plannedBomb;
       }
 
-      /* 4. Walk one cardinal step toward target. */
+      /* 4. Walk one cardinal step toward target.  Tie-break: drain the larger
+         remaining gap first.  Picking strict >= (not strict >) keeps the
+         choice stable across ticks and avoids zigzagging. */
       if(target){
         const cx = target.tx + 0.5, cy = target.ty + 0.5;
         const dxr = cx - player.x;
         const dyr = cy - player.y;
+        const adx = Math.abs(dxr), ady = Math.abs(dyr);
         let dx = 0, dy = 0;
-        /* Whichever axis has the bigger gap wins this frame.  This naturally
-           produces L-shaped paths and prevents corner micro-jitter. */
-        if(Math.abs(dxr) > Math.abs(dyr) + 0.02){
-          if(Math.abs(dxr) > 0.05) dx = dxr > 0 ? 1 : -1;
-        } else {
-          if(Math.abs(dyr) > 0.05) dy = dyr > 0 ? 1 : -1;
+        if(adx > 0.05 || ady > 0.05){
+          if(adx >= ady) dx = Math.sign(dxr);
+          else            dy = Math.sign(dyr);
         }
         return { dx, dy, bomb: false };
       }
@@ -191,6 +191,11 @@ function planNext(engineView, player, level, myTx, myTy){
   const queue = [[myTx, myTy, 0]];
   visited.add(myTx + ',' + myTy);
 
+  /* If we already have a bomb out, don't bother planning attack runs — we
+     can't place anyway, and walking into a "good attack tile" mid-fuse just
+     thrashes the path. */
+  const canPlace = player.bombsLive < player.bombMax;
+
   let bestPickup = null;
   let bestAttack = null;
   let bestEnemy = null;
@@ -216,8 +221,8 @@ function planNext(engineView, player, level, myTx, myTy){
       bestEnemy = { tx: x, ty: y, dist };
     }
 
-    /* Crate-adjacent? Only count if we'd survive a bomb here. */
-    if(!bestAttack && dist > 0){
+    /* Crate-adjacent? Only count if we can actually drop a bomb AND survive it. */
+    if(canPlace && !bestAttack && dist > 0){
       let hasCrate = false;
       for(const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
         if(engineView.field.at(x + dx, y + dy) === TILE.BOX){ hasCrate = true; break; }
@@ -246,6 +251,9 @@ function planNext(engineView, player, level, myTx, myTy){
   if(bestEnemy && enemyDist < 6) return { target: bestEnemy, plannedBomb: null };
   if(bestPickup) return { target: bestPickup, plannedBomb: null };
   if(bestAttack) return { target: bestAttack, plannedBomb: { tx: bestAttack.tx, ty: bestAttack.ty } };
+  /* When we can't bomb and there's nothing else to do, stay put — beats
+     wandering through someone else's blast radius. */
+  if(!canPlace) return { target: null, plannedBomb: null };
   if(firstFreeNeighbour) return { target: firstFreeNeighbour, plannedBomb: null };
   return { target: null, plannedBomb: null };
 }
