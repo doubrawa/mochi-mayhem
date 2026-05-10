@@ -152,7 +152,28 @@ function planRoute(me, view, danger, allowBomb = true){
     const c = planClear(me, view, danger, reach);
     if(c) return c;
   }
-  return planPickup(me, view, reach);
+  const p = planPickup(me, view, reach);
+  if(p) return p;
+  /* Always have something to do — walk to the farthest reachable safe tile
+     so the CPU keeps exploring even when no strategic goal is available. */
+  return planExplore(me, view, reach);
+}
+
+/* Goal 4 (always-on fallback): EXPLORE — pick the farthest reachable safe
+   tile and walk there.  Never returns null as long as ANY neighbour is
+   reachable. */
+function planExplore(me, view, reach){
+  const myTx = Math.floor(me.x), myTy = Math.floor(me.y);
+  let best = null;
+  for(const [k, info] of reach){
+    if(info.dist === 0) continue;
+    if(!best || info.dist > best.dist){
+      const [x, y] = k.split(',').map(Number);
+      best = { x, y, dist: info.dist };
+    }
+  }
+  if(!best) return null;
+  return assembleRoute('explore', me, reach, best.x, best.y, false, null);
 }
 
 /* Goal 1: ATTACK — find a tile whose bomb hits at least one enemy.  Score
