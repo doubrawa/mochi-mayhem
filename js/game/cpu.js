@@ -331,8 +331,10 @@ function countCrates(field){
 }
 
 /* PICKUP candidate: closest reachable pickup with a positive value
-   (skipping Curse).  Distance dominates the score so the user's example
-   case (enemy at 10 vs pickup at 2 → pickup wins) holds. */
+   (skipping Curse).  Base score and distance falloff are tuned so that
+   pickups out-prioritise CLEAR almost across the board — only a really
+   fat multi-crate cluster beats a reachable pickup.  ATTACK with a real
+   hit still wins because attack adds 30 per enemy hit. */
 function planPickupCandidate(me, view, reach){
   if(view.pickups.length === 0) return null;
   let best = null;
@@ -341,10 +343,10 @@ function planPickupCandidate(me, view, reach){
     if(!info) continue;
     const value = PICKUP_VALUE[pu.type] ?? 30;
     if(value <= 0) continue;
-    /* Base 100 − 5 per tile.  Stays competitive with attacks at long
-       distances and beats CLEAR when the pickup is close and the clear
-       payoff is small. */
-    const score = 100 - info.dist * 5;
+    /* Base 160 − 3 per tile.  Even pickups 15 tiles away score 115,
+       beating a 2-crate CLEAR (typical ~92).  Big 4-5-crate clears still
+       outscore. */
+    const score = 160 - info.dist * 3;
     if(!best || score > best.score){
       best = { kind: 'pickup', x: pu.x, y: pu.y, score, dist: info.dist };
     }

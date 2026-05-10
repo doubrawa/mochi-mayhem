@@ -119,6 +119,14 @@ export function runMatch({ seed, presetId = 'medium', cpuCount = 6, dt = 0.05, m
           bombByTile.set(tx+','+ty, bomb.id);
           p.bombsLive++;
           p.passthrough.add(bomb.id);
+          /* Mirror engine: other players overlapping the bomb tile get
+             passthrough so they aren't frozen on a now-solid tile. */
+          for(const other of players){
+            if(other === p || !other.alive) continue;
+            for(const [otx, oty] of tilesUnderPlayer(other)){
+              if(otx === tx && oty === ty){ other.passthrough.add(bomb.id); break; }
+            }
+          }
           log.bombsPlaced++;
           log.events.push({ t:+elapsed.toFixed(2), type:'bomb', idx:p.idx, pos:[tx,ty] });
         }

@@ -252,6 +252,20 @@ export function createEngine(lobby, hooks, opts = {}){
             bombByTile.set(tx+','+ty, bomb.id);
             p.bombsLive++;
             p.passthrough.add(bomb.id);
+            /* Any OTHER player whose AABB hitbox overlaps the new bomb tile
+               must also be allowed to walk off it — otherwise canFit treats
+               the tile as solid every tick and the player is frozen in
+               place until the bomb detonates.  Cleanup elsewhere removes
+               the entry as soon as the player steps off. */
+            for(const other of players){
+              if(other === p || !other.alive) continue;
+              for(const [otx, oty] of tilesUnderPlayer(other)){
+                if(otx === tx && oty === ty){
+                  other.passthrough.add(bomb.id);
+                  break;
+                }
+              }
+            }
             pendingEvents.push({ type: 'bombPlaced', bomb });
           }
         } else if(p.hasRemote){
