@@ -8,6 +8,7 @@ export function createMatch(lobby){
     timeLimit: lobby.timeLimit,
     fieldSize: lobby.fieldSize,
     goodieFreq: lobby.goodieFreq,
+    speed: lobby.speed || 'normal',
     current: 1,                            // 1-indexed
     /* Snapshot of the active players when the match started.
        We keep their config (id, name, mode) here so screen rendering doesn't

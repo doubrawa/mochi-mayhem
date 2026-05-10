@@ -35,6 +35,7 @@ export function encodeMatch(match){
     timeLimit: match.timeLimit,
     fieldSize: match.fieldSize,
     goodieFreq: match.goodieFreq,
+    speed: match.speed,
     players: match.players.map(p => ({
       idx: p.idx, id: p.id, name: p.name, mode: p.mode,
       score: p.score, ko: p.ko,
@@ -55,6 +56,7 @@ export function decodeMatch(raw){
     timeLimit: raw.timeLimit,
     fieldSize: raw.fieldSize,
     goodieFreq: raw.goodieFreq,
+    speed: raw.speed || 'normal',
     players: raw.players.map(p => ({ ...p })),
     history: (raw.history || []).map(h => ({
       winnerIdx: h.winnerIdx,

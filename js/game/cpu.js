@@ -180,81 +180,84 @@ function planRoute(me, view, danger, allowBomb = true, prevTile = null){
      safe-on-arrival under the current danger map. */
   const reach = bfsSafe(me, view, danger);
 
-  /* New priority order, per user spec:
-       1. Free path to enemy   →  ATTACK (if a bombing position works) or
-                                  PURSUE (walk closer); requires the enemy
-                                  tile to be reachable.
-       2. Free path to pickup  →  PICKUP
-       3. Clear-bomb           →  pick the spot that hits the MOST crates
-       4. Explore              →  fallback so we never idle. */
-  const enemyGoal = planEnemyGoal(me, view, reach, allowBomb);
-  if(enemyGoal) return enemyGoal;
-
-  const pickup = planPickup(me, view, reach);
-  if(pickup) return pickup;
-
+  /* Soft priority: each goal type produces its best scored candidate; we
+     pick the highest-scoring across all kinds.  Score weights are tuned
+     so the user's example works (enemy at dist 10 vs pickup at dist 2 →
+     pickup wins) without losing the obvious cases (close attack > far
+     pickup; massive crate cluster > nearby pickup). */
+  const candidates = [];
   if(allowBomb){
-    const clear = planClear(me, view, danger, reach);
-    if(clear) return clear;
+    const a = planAttackCandidate(me, view, reach);
+    if(a) candidates.push(a);
+    const c = planClearCandidate(me, view, reach);
+    if(c) candidates.push(c);
   }
+  const pu = planPickupCandidate(me, view, reach);
+  if(pu) candidates.push(pu);
+  const ps = planPursueCandidate(me, view, reach);
+  if(ps) candidates.push(ps);
+
+  if(candidates.length){
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    const includeBomb = best.kind === 'attack' || best.kind === 'clear';
+    return assembleRoute(best.kind, me, reach, best.x, best.y, includeBomb, best.escape || null);
+  }
+
   return planExplore(me, view, reach, prevTile);
 }
 
-/* Goal 1: enemy is on a tile we can already reach.  Prefer ATTACK (a bomb
-   spot whose blast covers the enemy) when one exists with a verified
-   escape.  Otherwise PURSUE — just walk straight at the closest reachable
-   enemy and let the next replan re-check for an attack window. */
-function planEnemyGoal(me, view, reach, allowBomb){
+/* ATTACK candidate: a bomb position whose blast hits at least one
+   reachable enemy, with a verified escape.  Returns the highest-scoring
+   spot or null. */
+function planAttackCandidate(me, view, reach){
+  if(me.bombsLive >= me.bombMax) return null;
   const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
   if(enemies.length === 0) return null;
-
-  const reachableEnemies = enemies.filter(e => {
-    const k = Math.floor(e.x) + ',' + Math.floor(e.y);
-    return reach.has(k);
-  });
+  const reachableEnemies = enemies.filter(e => reach.has(Math.floor(e.x) + ',' + Math.floor(e.y)));
   if(reachableEnemies.length === 0) return null;
 
-  /* Try ATTACK first. */
-  if(allowBomb && me.bombsLive < me.bombMax){
-    const enemyTiles = new Set(reachableEnemies.map(e => Math.floor(e.x) + ',' + Math.floor(e.y)));
-    const chainTiles = ownBombBlastTiles(view, me);
-    let best = null;
-    for(const [k, info] of reach){
-      const [x, y] = k.split(',').map(Number);
-      const segs = computeExplosionSegments(view.field, x, y, me.range);
-      let hits = 0;
-      for(const s of segs) if(enemyTiles.has(s.x + ',' + s.y)) hits++;
-      if(hits === 0) continue;
-      /* Corner escape only needs distance 2 — the blast goes straight, not
-         diagonally, so any tile with a different row AND column from the
-         bomb is permanently outside the arms.  Straight escape still needs
-         range + 2 (must be past the last arm tile). */
-      const escape = computeEscape(me, view, x, y, 2, me.range + 2);
-      if(!escape) continue;
-      /* Chain bonus: spotting our own existing bomb's blast triggers a
-         cascade.  Prefer chained placements when we have multiple bombs
-         to spend (bombMax > bombsLive > 0). */
-      const chains = chainTiles.has(k);
-      const score = hits * 100 - info.dist + (chains ? 250 : 0);
-      if(isBetterCandidate({ x, y, score }, best)){
-        best = { x, y, dist: info.dist, score, escape };
-      }
+  const enemyTiles = new Set(reachableEnemies.map(e => Math.floor(e.x) + ',' + Math.floor(e.y)));
+  const chainTiles = ownBombBlastTiles(view, me);
+  let best = null;
+  for(const [k, info] of reach){
+    const [x, y] = k.split(',').map(Number);
+    const segs = computeExplosionSegments(view.field, x, y, me.range);
+    let hits = 0;
+    for(const s of segs) if(enemyTiles.has(s.x + ',' + s.y)) hits++;
+    if(hits === 0) continue;
+    const escape = computeEscape(me, view, x, y, 2, me.range + 2);
+    if(!escape) continue;
+    const chains = chainTiles.has(k);
+    /* Base 100 + 30 per enemy hit − 8 per tile of distance + chain bonus. */
+    const score = 100 + hits * 30 - info.dist * 8 + (chains ? 100 : 0);
+    if(isBetterCandidate({ x, y, score }, best)){
+      best = { kind: 'attack', x, y, score, dist: info.dist, escape };
     }
-    if(best) return assembleRoute('attack', me, reach, best.x, best.y, true, best.escape);
   }
+  return best;
+}
 
-  /* No good attack window yet — close the gap.  Pick the closest reachable
-     enemy and route straight to their tile. */
+/* PURSUE candidate: walk toward the closest reachable enemy without
+   bombing.  Lower base than ATTACK so a real attack window always wins
+   when one is available. */
+function planPursueCandidate(me, view, reach){
+  const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
+  if(enemies.length === 0) return null;
   let closest = null;
-  for(const e of reachableEnemies){
+  for(const e of enemies){
     const ex = Math.floor(e.x), ey = Math.floor(e.y);
     const info = reach.get(ex + ',' + ey);
+    if(!info || info.dist === 0) continue;
     if(!closest || info.dist < closest.dist){
       closest = { x: ex, y: ey, dist: info.dist };
     }
   }
-  if(!closest || closest.dist === 0) return null;
-  return assembleRoute('pursue', me, reach, closest.x, closest.y, false, null);
+  if(!closest) return null;
+  /* Base 80 − 6 per tile.  Beats far pickups when the enemy is close (dist
+     1 → 74), loses to a nearby pickup when the enemy is across the map. */
+  const score = 80 - closest.dist * 6;
+  return { kind: 'pursue', x: closest.x, y: closest.y, score, dist: closest.dist };
 }
 
 /* Goal 4 (always-on fallback): EXPLORE — pick the farthest reachable safe
@@ -280,10 +283,10 @@ function planExplore(me, view, reach, prevTile = null){
   return assembleRoute('explore', me, reach, best.x, best.y, false, null);
 }
 
-/* Goal 3: CLEAR — drop a bomb that destroys crates.  Per user request:
-   pick the bomb position that destroys the MOST boxes.  Crate count is
-   the primary score; distance only breaks ties. */
-function planClear(me, view, danger, reach){
+/* CLEAR candidate: a bomb position that destroys at least one crate.
+   Among many candidates, the score weighs crate count against distance,
+   with a chain bonus for placements that cascade with our existing bombs. */
+function planClearCandidate(me, view, reach){
   if(me.bombsLive >= me.bombMax) return null;
   const chainTiles = ownBombBlastTiles(view, me);
 
@@ -296,30 +299,24 @@ function planClear(me, view, danger, reach){
       if(view.field.at(s.x, s.y) === TILE.BOX) crates++;
     }
     if(crates === 0) continue;
-    /* Corner escape min distance 2 — going around a corner means the
-       blast can't reach us regardless of range.  Straight escape still
-       needs range + 2 (past the last arm tile). */
     const escape = computeEscape(me, view, x, y, 2, me.range + 2);
     if(!escape) continue;
-    /* Crates × 1000 dominates; distance is the tiebreak; chain placements
-       (target tile sits in one of our own existing bombs' blasts) get a
-       2500 bonus so a 1-crate chain beats a 2-crate non-chain.  The
-       isBetterCandidate helper falls back to (smaller y, smaller x) when
-       scores tie, so symmetric layouts no longer cause flip-flopping. */
     const chains = chainTiles.has(k);
-    const score = crates * 1000 - info.dist + (chains ? 2500 : 0);
+    /* Base 50 + 30 per crate − 6 per tile of distance + chain bonus.
+       Chain bonus is large enough that a 1-crate cascade still beats a
+       2-crate non-cascade at the same distance. */
+    const score = 50 + crates * 30 - info.dist * 6 + (chains ? 200 : 0);
     if(isBetterCandidate({ x, y, score }, best)){
-      best = { x, y, dist: info.dist, score, crates, escape };
+      best = { kind: 'clear', x, y, score, dist: info.dist, escape };
     }
   }
-  if(!best) return null;
-  return assembleRoute('clear', me, reach, best.x, best.y, true, best.escape);
+  return best;
 }
 
-/* Goal 2: PICKUP — closest reachable pickup, irrespective of type (skipping
-   only the negative ones like Curse).  Per user request: among multiple
-   candidates, pick the shortest path. */
-function planPickup(me, view, reach){
+/* PICKUP candidate: closest reachable pickup with a positive value
+   (skipping Curse).  Distance dominates the score so the user's example
+   case (enemy at 10 vs pickup at 2 → pickup wins) holds. */
+function planPickupCandidate(me, view, reach){
   if(view.pickups.length === 0) return null;
   let best = null;
   for(const pu of view.pickups){
@@ -327,12 +324,15 @@ function planPickup(me, view, reach){
     if(!info) continue;
     const value = PICKUP_VALUE[pu.type] ?? 30;
     if(value <= 0) continue;
-    if(!best || info.dist < best.dist){
-      best = { x: pu.x, y: pu.y, dist: info.dist };
+    /* Base 100 − 5 per tile.  Stays competitive with attacks at long
+       distances and beats CLEAR when the pickup is close and the clear
+       payoff is small. */
+    const score = 100 - info.dist * 5;
+    if(!best || score > best.score){
+      best = { kind: 'pickup', x: pu.x, y: pu.y, score, dist: info.dist };
     }
   }
-  if(!best) return null;
-  return assembleRoute('pickup', me, reach, best.x, best.y, false, null);
+  return best;
 }
 
 function assembleRoute(kind, me, reach, tx, ty, includeBomb, escape){

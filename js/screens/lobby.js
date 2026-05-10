@@ -25,6 +25,7 @@ export function defaultLobbyState(){
     rounds: 3,
     timeLimit: 150,
     goodieFreq: 1,                  // 0=sparse 1=normal 2=generous
+    speed: 'normal',                // 'slow' | 'normal' | 'fast'
     players: CHAR_IDS.map((id, i) => ({
       id,
       name: DEFAULT_NAMES[i] || CHARS[id].name,
@@ -83,6 +84,12 @@ export function render(ctx){
             <span data-val="210" class="${state.timeLimit===210?'on':''}">3:30</span>
             <span data-val="0"   class="${state.timeLimit===0?'on':''}">∞</span>
           </div>
+          <div class="opt-lbl">Speed</div>
+          <div class="seg-row" data-seg="speed">
+            <span data-val="slow"   class="${state.speed==='slow'?'on':''}">Slow</span>
+            <span data-val="normal" class="${state.speed==='normal'?'on':''}">Normal</span>
+            <span data-val="fast"   class="${state.speed==='fast'?'on':''}">Fast</span>
+          </div>
         </div>
       </div>
 
@@ -116,9 +123,11 @@ export function render(ctx){
         g.querySelectorAll('span').forEach(x => x.classList.remove('on'));
         s.classList.add('on');
         const key = g.getAttribute('data-seg');
-        const val = parseInt(s.getAttribute('data-val'), 10);
+        const raw = s.getAttribute('data-val');
+        const val = isNaN(parseInt(raw, 10)) ? raw : parseInt(raw, 10);
         if(key === 'rounds') state.rounds = val;
         if(key === 'time')   state.timeLimit = val;
+        if(key === 'speed')  state.speed = val;
       });
     });
   });

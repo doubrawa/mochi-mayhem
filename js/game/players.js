@@ -23,7 +23,7 @@ const CORNER_NUDGE_FACTOR = 1.6;
 /* Off-center tolerance: don't waste a tick nudging by less than this. */
 const CORNER_TOLERANCE = 0.05;
 
-export function createPlayer(slot, schemeId, charId, controllerType, displayName){
+export function createPlayer(slot, schemeId, charId, controllerType, displayName, baseSpeed = 4.5){
   return {
     idx: slot.idx,
     charId,
@@ -32,7 +32,7 @@ export function createPlayer(slot, schemeId, charId, controllerType, displayName
     type: controllerType,
     x: slot.x + 0.5,
     y: slot.y + 0.5,
-    speed: 4.5,
+    speed: baseSpeed,
     facing: 'down',
     alive: true,
     bombMax: 1,

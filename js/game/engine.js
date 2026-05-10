@@ -17,6 +17,9 @@ import {
 import { createCpuController } from './cpu.js';
 
 const HUMAN_SCHEMES = ['wasd', 'arrows', 'ijkl', 'numpad'];
+/* Lobby-level speed setting applied uniformly to every player. */
+const SPEED_FACTORS = { slow: 0.7, normal: 1.0, fast: 1.4 };
+const BASE_SPEED = 4.5;
 
 export function createEngine(lobby, hooks, opts = {}){
   const presetId = lobby.fieldSize in FIELD_PRESETS ? lobby.fieldSize : 'medium';
@@ -27,6 +30,8 @@ export function createEngine(lobby, hooks, opts = {}){
   const field = createField(presetId, activePlayers.length);
   const input = createInput();
   const timeLimit = lobby.timeLimit || 0;     // 0 = infinite
+  const speedFactor = SPEED_FACTORS[lobby.speed] ?? 1.0;
+  const baseSpeed = BASE_SPEED * speedFactor;
 
   const players = [];
   const cpus = new Map();         // idx -> cpu controller for cpu-mode players
@@ -38,7 +43,7 @@ export function createEngine(lobby, hooks, opts = {}){
        Toggling a slot from human to CPU keeps later humans' bindings
        intact — their schemes don't shift up. */
     const scheme = cfg.mode === 'human' ? (HUMAN_SCHEMES[i] || null) : null;
-    players.push(createPlayer(slot, scheme, cfg.id, cfg.mode, cfg.name));
+    players.push(createPlayer(slot, scheme, cfg.id, cfg.mode, cfg.name, baseSpeed));
     if(cfg.mode === 'cpu'){
       /* First CPU per match is "nice", later ones get "mean" — keeps things
          interesting when several CPUs are in play.  Easy to tune later. */
