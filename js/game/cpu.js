@@ -71,15 +71,22 @@ export function createCpuController(level = 'nice'){
       const danger = buildDangerMap(view);
 
       /* ── SURVIVAL REFLEX ──────────────────────────────────────────────
-         Only kicks in when the route can't save us in time — either we have
-         no route, or the route's final destination is itself in a blast.
-         A committed escape after our own bomb-plant looks like "I'm in my
-         own blast zone but my route ends on a safe tile" — that's NOT a
-         survival emergency, just normal route execution. */
+         Two ways this trips:
+           a) Our actual current tile is about to explode (any bomb covers
+              it within SURVIVAL_THRESHOLD).
+           b) An enemy bomb shares our row OR column.  We don't know the
+              enemy's range, so we treat foreign bombs as unbounded — if
+              they're in line with us we flee preemptively.
+         A committed escape route that ends on a permanently safe tile
+         (clear of both actual danger and foreign line-of-fire) suppresses
+         the reflex; we trust the plan in that case. */
+      const foreignWorst = buildForeignWorstDanger(view, me);
       const myBlast = danger.get(myTx + ',' + myTy);
-      if(myBlast !== undefined && myBlast < SURVIVAL_THRESHOLD
-         && !routeWillSave(route, stepIdx, danger)){
-        const flee = findFleeStep(me, view, danger);
+      const inActualBlast = myBlast !== undefined && myBlast < SURVIVAL_THRESHOLD;
+      const inForeignThreat = foreignWorst.has(myTx + ',' + myTy);
+      if((inActualBlast || inForeignThreat)
+         && !routeWillSave(route, stepIdx, danger, foreignWorst)){
+        const flee = findFleeStep(me, view, danger, foreignWorst);
         if(flee){
           route = null; stepIdx = 0;
           return walkToward(me, flee);
@@ -499,20 +506,40 @@ function computeEscape(me, view, bx, by, minCornerDist, minStraightDist){
   return reconstructPath(visited, bx, by, best.x, best.y);
 }
 
-/* Survival reflex: find the closest tile not in any blast, return a single
-   step toward it. */
-function findFleeStep(me, view, danger){
+/* Survival reflex: find a flee target and return a single step toward it.
+   Two-tier preference:
+     1. CORNER escape — closest tile that's outside both the actual danger
+        map AND every foreign bomb's worst-case row/column.  This is the
+        "around the corner" position the user asks for.
+     2. FAR escape — closest tile outside the actual danger map.  Used when
+        no true corner is reachable; we accept staying in some enemy's
+        line-of-fire as long as we're not in an immediate blast. */
+function findFleeStep(me, view, danger, foreignWorst){
   const visited = bfsSafe(me, view, danger);
   const myTx = Math.floor(me.x), myTy = Math.floor(me.y);
-  let best = null;
+  let cornerBest = null;
+  let farBest = null;
   for(const [k, info] of visited){
     if(info.dist === 0) continue;
     if(danger.has(k)) continue;
-    if(!best || info.dist < best.dist){
-      const [x, y] = k.split(',').map(Number);
-      best = { x, y, dist: info.dist };
+    const inForeign = foreignWorst && foreignWorst.has(k);
+    if(!inForeign){
+      if(!cornerBest || info.dist < cornerBest.dist){
+        const [x, y] = k.split(',').map(Number);
+        cornerBest = { x, y, dist: info.dist };
+      }
+    } else {
+      /* Still in some foreign line-of-fire, but at least clear of immediate
+         actual danger.  Prefer the FARTHEST such tile (more tiles between
+         us and the enemy bomb's source = harder for a long-range bomb to
+         reach us). */
+      if(!farBest || info.dist > farBest.dist){
+        const [x, y] = k.split(',').map(Number);
+        farBest = { x, y, dist: info.dist };
+      }
     }
   }
+  const best = cornerBest || farBest;
   if(!best){
     /* Truly trapped — pick any passable neighbour. */
     for(const [dx, dy] of CARDINALS){
@@ -522,7 +549,7 @@ function findFleeStep(me, view, danger){
     }
     return null;
   }
-  /* Walk the first step of the path toward the safe tile. */
+  /* Walk the first step of the path toward the chosen flee tile. */
   const path = reconstructPath(visited, myTx, myTy, best.x, best.y);
   if(!path || path.length === 0) return null;
   return { x: path[0][0], y: path[0][1] };
@@ -575,13 +602,36 @@ function ownBombBlastTiles(view, me){
   return set;
 }
 
-/* True if the current route ends on a tile that's permanently safe — meaning
-   the committed plan WILL deliver us to safety.  Used to suppress the
-   survival reflex while we're correctly executing our own escape. */
-function routeWillSave(route, stepIdx, danger){
+/* Worst-case danger from foreign (non-own) bombs.  We don't know the
+   enemy's actual range, so we treat each foreign bomb as if its blast
+   reached the maximum possible distance — implemented as a giant range
+   passed to computeExplosionSegments, which still respects walls and
+   crates as blockers.  Result: the full row + column from each enemy
+   bomb tile (until obstacles), so we know which tiles share line-of-fire
+   with an enemy bomb regardless of its actual range. */
+function buildForeignWorstDanger(view, me){
+  const set = new Set();
+  const maxRange = Math.max(view.field.width, view.field.height);
+  for(const b of view.bombs){
+    if(b.ownerIdx === me.idx) continue;
+    const segs = computeExplosionSegments(view.field, b.x, b.y, maxRange);
+    for(const s of segs) set.add(s.x + ',' + s.y);
+  }
+  return set;
+}
+
+/* True if the current route ends on a tile that's permanently safe under
+   BOTH the actual danger map AND the worst-case foreign-bomb threat —
+   meaning the committed plan delivers us to a tile where we're clear of
+   our own blasts and out of line-of-fire of every enemy bomb.  Suppresses
+   the survival reflex while we're correctly walking our own escape. */
+function routeWillSave(route, stepIdx, danger, foreignWorst){
   if(!route || stepIdx >= route.steps.length) return false;
   const last = route.steps[route.steps.length - 1];
-  return !danger.has(last.x + ',' + last.y);
+  const k = last.x + ',' + last.y;
+  if(danger.has(k)) return false;
+  if(foreignWorst && foreignWorst.has(k)) return false;
+  return true;
 }
 
 /* Check if the very next tile we'd walk onto is still safe to enter.  We
