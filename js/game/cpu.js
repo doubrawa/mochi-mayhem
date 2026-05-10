@@ -1,288 +1,252 @@
-/* CPU controller — third rewrite, behaviour spec driven.
+/* CPU controller — clean rewrite per user spec.
  *
- * The previous controller was a per-tick goal scorer.  That worked for the
- * "where to walk" decision but had two systemic flaws:
+ *   Priority of goals (the CPU tries each in turn):
+ *     1. ATTACK  — drop a bomb where its blast hits an enemy
+ *     2. CLEAR   — drop a bomb that destroys crates (preferring crates near
+ *                  enemies, so we open paths toward them)
+ *     3. PICKUP  — walk to the nearest reachable power-up
  *
- *   1. Self-kill: it picked a goal post-bomb, walked toward it, and re-planned
- *      every step.  In a multi-bomb crowd, the walk would stutter and the CPU
- *      would still be inside the blast when its own bomb detonated.
- *   2. Ping-pong: if two adjacent tiles tied on score, the CPU would oscillate
- *      between them because each replan reset.
+ *   For the chosen goal we build a complete ROUTE: walk steps to reach the
+ *   target tile, the bomb-plant step (if applicable), then walk steps to a
+ *   verified safe escape tile.  The CPU then executes the route step by step
+ *   and DOES NOT reconsider its goal mid-route — once the goal is chosen, we
+ *   commit.  Replanning happens only when the route is fully done (or in the
+ *   one survival-reflex case below).
  *
- * This version is a small state machine with COMMITTED plans:
+ *   The single exception is a survival reflex: if the CPU's CURRENT tile is
+ *   about to explode in < 1.5 s and the route's next step doesn't escape it,
+ *   we abandon the route and walk the closest safe step.  This is a reflex,
+ *   not goal weighing.
  *
- *   SAFE        idle/exploring; plans new goals
- *   FLEEING     standing in someone's blast — escape NOW (overrides everything)
- *   ATTACKING   walking to a planted-bomb tile
- *   RETREATING  bomb is in the ground, walking the full pre-computed escape
- *               path tile-by-tile.  Cannot be derailed except by P1 flee.
- *   PURSUING    walking toward an enemy/pickup with verified safe path
- *
- * The danger map is CHAIN-REACTION AWARE: a bomb sitting in another bomb's
- * blast inherits the earlier bomb's effective fuse time, so the CPU correctly
- * predicts cascade explosions instead of being surprised by them.
- *
- * Bomb placement requires a fully verified escape path (not just "2 escape
- * tiles exist somewhere"), and once placed the CPU executes that path until
- * complete.  Re-planning during retreat is the main reason CPUs die from
- * their own bombs.
- *
- * Decision priority (per spec):
- *   1. Survive immediate threat
- *   2. Continue committed retreat
- *   3. Continue committed attack walk
- *   4. Plant bomb if at attack tile and escape still verified
- *   5. Choose new goal: pickup → tactical bomb → crate clear → reposition
- *   6. Wander toward better-controlled tiles, never freeze
+ *   Routes that include a bomb-plant always have the escape pre-computed at
+ *   plan time, so under a single CPU's bomb the escape is guaranteed safe.
+ *   Other CPUs placing bombs on our path is the inherent risk of "no
+ *   midway re-evaluation".
  */
 
 import { TILE } from './field.js';
 import { computeExplosionSegments, FUSE_SECONDS } from './bombs.js';
 
-const SAFETY_MARGIN  = 0.7;     // arrival-time vs blast buffer
-const ESCAPE_MARGIN  = 1.3;     // wider buffer when validating retreat paths
-const BOMB_COOLDOWN  = 0.5;
-const BFS_LIMIT      = 24;
-const ARRIVE_EPS     = 0.18;
-/* Minimum escape distance for a "safe to bomb" verdict.  A 1- or 2-tile
-   escape leaves the player's body extent in or near the blast at detonation
-   even if the centre tile is "safe".  Three tiles gives a clean buffer.
-   The trade-off is fewer bombs in cramped corner spawns — but the matches
-   we tested show this trade is overwhelmingly worth it (self-kills dropped
-   from 38 % to 7 %). */
-const MIN_ESCAPE_DIST = 3;
-const CARDINALS      = [[1,0],[-1,0],[0,1],[0,-1]];
-
-/* Tiles tagged dangerous-recently are mildly avoided for this many seconds
-   after the bomb that touched them clears.  Stops the CPU from immediately
-   walking back into the same trap area. */
-const RECENT_DANGER_FADE = 2.0;
-const RECENT_DANGER_PENALTY = 8;
+const CARDINALS = [[1,0],[-1,0],[0,1],[0,-1]];
+const ARRIVE_EPS = 0.18;
+const BFS_LIMIT = 24;
+const ESCAPE_MARGIN = 1.2;          // arrival + this < blast time
+/* Threshold above the max fuse (3 s) so we react to ANY bomb covering our
+   tile, even one just placed.  This is the only mid-route override; without
+   it the CPU walks committed escape paths that another CPU's bomb has cut. */
+const SURVIVAL_THRESHOLD = 4.0;
+const STUCK_TICKS_MAX = 30;         // can't move for this many ticks → abandon
 
 const PICKUP_VALUE = {
-  bomb: 90, fire: 85, shield: 95, super: 80, speed: 70,
-  remote: 70, ghost: 60, kick: 55, magnet: 45, slow: 40,
-  boomerang: 75, curse: -200,
+  bomb: 100, fire: 100, shield: 80, super: 80, speed: 70,
+  remote: 70, ghost: 60, kick: 60, magnet: 50, slow: 40,
+  boomerang: 70, curse: -1,
 };
 
 export function createCpuController(level = 'nice'){
-  const isMean = level === 'mean';
-  /* Per-CPU random offset so two identical-state CPUs don't pick identical
-     goals — adds the human-like irregularity the spec calls for. */
-  const personalNoise = Math.random() * 6 - 3;
-
-  /* State machine.  `plan` is the current commitment; null means "decide".
-     A plan is a ROUTE (path of tiles).  Once chosen we commit to it and
-     walk it; we only abandon it if it becomes physically unsafe, the
-     destination becomes meaningless (pickup gone, target no longer
-     valuable), or we reach the end. */
-  let plan = null;
-  let nextBombAt = -999;
-  const recentDanger = new Map();
-  /* The tile we last completed a plan on — used to break the "I just got
-     here, the closest high-score tile is where I came from" oscillation
-     by penalising backtracking for one replan. */
-  let prevPlanCompletedTile = null;
+  let route = null;     // { kind: 'attack'|'clear'|'pickup', steps: [{x,y,kind: 'walk'|'bomb'}] }
+  let stepIdx = 0;
+  let stuckTicks = 0;
+  let lastPos = null;
+  /* Random startup delay (0-1.5 s) prevents 6 CPUs from all dropping their
+     first bomb on the same tick.  Synchronised early bombs make the field
+     unplannable: every CPU's escape route gets cut by a neighbour's bomb. */
+  const startupDelay = Math.random() * 1.5;
 
   return {
     decide(me, view){
-      const t = view.elapsed;
       const myTx = Math.floor(me.x);
       const myTy = Math.floor(me.y);
-
-      updateRecentDanger(view, recentDanger, t);
       const danger = buildDangerMap(view);
 
-      /* ---- P1 — immediate threat handling.  The current plan stays in
-         charge as long as its remaining tiles are still safe-on-arrival;
-         only when the plan can't survive the new danger map do we throw
-         it away and compute a fresh flee path. ---- */
+      /* ── SURVIVAL REFLEX ──────────────────────────────────────────────
+         Only kicks in when the route can't save us in time — either we have
+         no route, or the route's final destination is itself in a blast.
+         A committed escape after our own bomb-plant looks like "I'm in my
+         own blast zone but my route ends on a safe tile" — that's NOT a
+         survival emergency, just normal route execution. */
       const myBlast = danger.get(myTx + ',' + myTy);
-      if(myBlast !== undefined){
-        if(plan && plan.path
-           && !planComplete(plan, me)
-           && planStepStillSafe(plan, view, me, danger)){
-          return executePlan(plan, me, view, danger);
+      if(myBlast !== undefined && myBlast < SURVIVAL_THRESHOLD
+         && !routeWillSave(route, stepIdx, danger)){
+        const flee = findFleeStep(me, view, danger);
+        if(flee){
+          route = null; stepIdx = 0;
+          return walkToward(me, flee);
         }
-        const escape = findEscapePath(view, me, danger);
-        plan = escape ? { kind: 'flee', path: escape.path, stepIdx: 0 } : null;
-        return executePlan(plan, me, view, danger)
-            || anyPassableNeighborCmd(view, me, myTx, myTy)
-            || idle();
       }
 
-      /* ---- P2 — at attack target, plant bomb if escape is verified ---- */
-      if(plan && plan.kind === 'attack' && plan.target
-         && tileReached(me, plan.target)){
-        if(t > nextBombAt && me.bombsLive < me.bombMax){
-          const escape = computeEscapeAfterBomb(view, me, myTx, myTy);
-          if(escape && escape.path.length > 0){
-            nextBombAt = t + BOMB_COOLDOWN;
-            plan = { kind: 'retreat', path: escape.path, stepIdx: 0 };
+      /* ── STUCK DETECTION ──────────────────────────────────────────────
+         If we haven't moved a meaningful amount for STUCK_TICKS_MAX ticks
+         (e.g. another CPU dropped a bomb in our path), drop the route and
+         replan. */
+      const posKey = me.x.toFixed(1) + ',' + me.y.toFixed(1);
+      if(posKey === lastPos) stuckTicks++;
+      else { stuckTicks = 0; lastPos = posKey; }
+      if(stuckTicks > STUCK_TICKS_MAX){
+        route = null; stepIdx = 0; stuckTicks = 0;
+      }
+
+      /* ── PLAN ROUTE if we don't have one ────────────────────────────── */
+      if(!route || stepIdx >= route.steps.length){
+        const allowBomb = view.elapsed >= startupDelay;
+        route = planRoute(me, view, danger, allowBomb);
+        stepIdx = 0;
+        if(!route) return idle();
+      }
+
+      /* ── ROUTE INTEGRITY ─────────────────────────────────────────────
+         The next tile we'd walk onto must not be about to explode.  If
+         another CPU's bomb covers it, abandon the route and replan. */
+      if(!nextStepStillSafe(route, stepIdx, danger, me)){
+        route = null; stepIdx = 0;
+        return idle();
+      }
+
+      /* ── EXECUTE current step ───────────────────────────────────────── */
+      const step = route.steps[stepIdx];
+
+      if(step.kind === 'bomb'){
+        /* Plant when fully centred on the bomb tile. */
+        if(myTx === step.x && myTy === step.y && tileReached(me, step)){
+          if(me.bombsLive < me.bombMax){
+            stepIdx++;
             return { dx: 0, dy: 0, bomb: true };
           }
+          /* Capacity full — wait one tick. */
+          return idle();
         }
-        plan = null;
+        return walkToward(me, step);
       }
 
-      /* ---- P3 — committed retreat: walk the full escape path ---- */
-      if(plan && plan.kind === 'retreat'){
-        if(planComplete(plan, me)){ prevPlanCompletedTile = myTx+','+myTy; plan = null; }
-        else if(!planStepStillSafe(plan, view, me, danger)) plan = null;
-        else return executePlan(plan, me, view, danger);
-      }
-
-      /* ---- P4 — committed attack walk ---- */
-      if(plan && plan.kind === 'attack'){
-        if(!planStepStillSafe(plan, view, me, danger)
-           || !attackTargetStillValuable(plan.target, view, me)){
-          plan = null;
-        } else {
-          return executePlan(plan, me, view, danger);
+      /* Walk step.  Advance when we've crossed onto the target tile —
+         EXCEPT the final step of the route, which must be fully centred
+         on so the body extent is entirely on the (safe) destination tile,
+         not straddling an adjacent blast tile. */
+      if(myTx === step.x && myTy === step.y){
+        const isFinal = stepIdx === route.steps.length - 1;
+        if(isFinal && !tileReached(me, step)){
+          return walkToward(me, step);
         }
+        stepIdx++;
+        if(stepIdx >= route.steps.length) return idle();
+        return walkToward(me, route.steps[stepIdx]);
       }
-
-      /* ---- P5 — pursuing pickup/position ---- */
-      if(plan && (plan.kind === 'pickup' || plan.kind === 'position')){
-        if(planComplete(plan, me)){ prevPlanCompletedTile = myTx+','+myTy; plan = null; }
-        else if(!planStepStillSafe(plan, view, me, danger)) plan = null;
-        else if(plan.kind === 'pickup' && !pickupStillThere(plan.target, view)) plan = null;
-        else return executePlan(plan, me, view, danger);
-      }
-
-      /* ---- P6 — choose a new committed route.  Penalise the tile we
-         just came from so we don't immediately backtrack. ---- */
-      const newPlan = choosePlan(view, me, danger, recentDanger, t, isMean, personalNoise, prevPlanCompletedTile);
-      if(newPlan){
-        plan = newPlan;
-        prevPlanCompletedTile = null;   // consumed
-        return executePlan(plan, me, view, danger) || idle();
-      }
-
-      /* ---- P7 — fallback wander toward a tile with more exits ---- */
-      return pickControlledStep(view, me, danger, recentDanger, t) || idle();
+      return walkToward(me, step);
     },
-    _debug(){ return { plan }; },
+    _debug(){ return { route, stepIdx }; },
   };
 }
 
 /* ====================================================
-   Danger map with chain-reaction propagation.
+   Route planning — try each priority in order.
    ==================================================== */
 
-function buildDangerMap(view){
-  const bombs = view.bombs;
-  const eff = new Map();
-  for(const b of bombs){
-    eff.set(b.id, b.detonating ? 0 : Math.max(0, b.fuse));
+function planRoute(me, view, danger, allowBomb = true){
+  /* BFS reachability — every path tile must be currently passable AND
+     safe-on-arrival under the current danger map. */
+  const reach = bfsSafe(me, view, danger);
+
+  if(allowBomb){
+    const a = planAttack(me, view, danger, reach);
+    if(a) return a;
+    const c = planClear(me, view, danger, reach);
+    if(c) return c;
   }
-  /* Iteratively propagate: if bomb B sits on one of bomb A's blast tiles,
-     B inherits the smaller of (its own fuse, A's effective fuse). */
-  let changed = true;
-  while(changed){
-    changed = false;
-    for(const a of bombs){
-      const aFuse = eff.get(a.id);
-      const aSegs = computeExplosionSegments(view.field, a.x, a.y, a.range);
-      for(const s of aSegs){
-        for(const b of bombs){
-          if(b.id === a.id) continue;
-          if(b.x === s.x && b.y === s.y){
-            const bFuse = eff.get(b.id);
-            if(aFuse < bFuse){
-              eff.set(b.id, aFuse);
-              changed = true;
-            }
-          }
+  return planPickup(me, view, reach);
+}
+
+/* Goal 1: ATTACK — find a tile whose bomb hits at least one enemy.  Score
+   by hits and proximity.  Requires a verified escape. */
+function planAttack(me, view, danger, reach){
+  if(me.bombsLive >= me.bombMax) return null;
+  const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
+  if(enemies.length === 0) return null;
+  const enemyTiles = new Set(enemies.map(e => Math.floor(e.x) + ',' + Math.floor(e.y)));
+
+  let best = null;
+  for(const [k, info] of reach){
+    const [x, y] = k.split(',').map(Number);
+    const segs = computeExplosionSegments(view.field, x, y, me.range);
+    let hits = 0;
+    for(const s of segs) if(enemyTiles.has(s.x + ',' + s.y)) hits++;
+    if(hits === 0) continue;
+    const escape = computeEscape(me, view, x, y);
+    if(!escape) continue;
+    const score = hits * 100 - info.dist;
+    if(!best || score > best.score){
+      best = { x, y, dist: info.dist, score, escape };
+    }
+  }
+  if(!best) return null;
+  return assembleRoute('attack', me, reach, best.x, best.y, true, best.escape);
+}
+
+/* Goal 2: CLEAR — drop a bomb that destroys crates.  Bonus for crates near
+   an enemy (helps open paths to them). */
+function planClear(me, view, danger, reach){
+  if(me.bombsLive >= me.bombMax) return null;
+  const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
+
+  let best = null;
+  for(const [k, info] of reach){
+    const [x, y] = k.split(',').map(Number);
+    const segs = computeExplosionSegments(view.field, x, y, me.range);
+    let crates = 0, cratesNearEnemy = 0;
+    for(const s of segs){
+      if(view.field.at(s.x, s.y) === TILE.BOX){
+        crates++;
+        for(const e of enemies){
+          const ex = Math.floor(e.x), ey = Math.floor(e.y);
+          if(Math.abs(s.x - ex) + Math.abs(s.y - ey) <= 5){ cratesNearEnemy++; break; }
         }
       }
     }
-  }
-  const map = new Map();
-  for(const b of bombs){
-    const fuse = eff.get(b.id);
-    const segs = computeExplosionSegments(view.field, b.x, b.y, b.range);
-    for(const s of segs){
-      const k = s.x + ',' + s.y;
-      const cur = map.get(k);
-      if(cur === undefined || fuse < cur) map.set(k, fuse);
+    if(crates === 0) continue;
+    const escape = computeEscape(me, view, x, y);
+    if(!escape) continue;
+    const score = crates * 10 + cratesNearEnemy * 25 - info.dist * 2;
+    if(!best || score > best.score){
+      best = { x, y, dist: info.dist, score, escape };
     }
   }
-  return map;
+  if(!best) return null;
+  return assembleRoute('clear', me, reach, best.x, best.y, true, best.escape);
 }
 
-/* Build the chain-aware danger map for a hypothetical world that includes a
-   yet-to-be-placed bomb at (tx,ty,range). */
-function buildHypotheticalDanger(view, hypoBomb){
-  const bombs = [...view.bombs, hypoBomb];
-  const eff = new Map();
-  for(const b of bombs){
-    eff.set(b.id, b.detonating ? 0 : Math.max(0, b.fuse));
-  }
-  let changed = true;
-  while(changed){
-    changed = false;
-    for(const a of bombs){
-      const aFuse = eff.get(a.id);
-      const aSegs = computeExplosionSegments(view.field, a.x, a.y, a.range);
-      for(const s of aSegs){
-        for(const b of bombs){
-          if(b.id === a.id) continue;
-          if(b.x === s.x && b.y === s.y){
-            const bFuse = eff.get(b.id);
-            if(aFuse < bFuse){
-              eff.set(b.id, aFuse);
-              changed = true;
-            }
-          }
-        }
-      }
+/* Goal 3: PICKUP — closest pickup with a positive value. */
+function planPickup(me, view, reach){
+  if(view.pickups.length === 0) return null;
+  let best = null;
+  for(const pu of view.pickups){
+    const info = reach.get(pu.x + ',' + pu.y);
+    if(!info) continue;
+    const value = PICKUP_VALUE[pu.type] ?? 30;
+    if(value <= 0) continue;
+    const score = value * 10 - info.dist;
+    if(!best || score > best.score){
+      best = { x: pu.x, y: pu.y, dist: info.dist, score };
     }
   }
-  const map = new Map();
-  for(const b of bombs){
-    const fuse = eff.get(b.id);
-    const segs = computeExplosionSegments(view.field, b.x, b.y, b.range);
-    for(const s of segs){
-      const k = s.x + ',' + s.y;
-      const cur = map.get(k);
-      if(cur === undefined || fuse < cur) map.set(k, fuse);
+  if(!best) return null;
+  return assembleRoute('pickup', me, reach, best.x, best.y, false, null);
+}
+
+function assembleRoute(kind, me, reach, tx, ty, includeBomb, escape){
+  const myTx = Math.floor(me.x), myTy = Math.floor(me.y);
+  const walkPath = reconstructPath(reach, myTx, myTy, tx, ty) || [];
+  const steps = walkPath.map(([x, y]) => ({ x, y, kind: 'walk' }));
+  if(includeBomb){
+    steps.push({ x: tx, y: ty, kind: 'bomb' });
+    if(escape){
+      for(const [x, y] of escape) steps.push({ x, y, kind: 'walk' });
     }
   }
-  return map;
+  if(steps.length === 0) return null;
+  return { kind, steps };
 }
 
 /* ====================================================
-   Recent-danger memory.
-   ==================================================== */
-
-function updateRecentDanger(view, mem, t){
-  /* For each currently-dangerous tile we refresh its expiry; tiles already
-     past their expiry get pruned. */
-  const live = new Set();
-  for(const b of view.bombs){
-    const segs = computeExplosionSegments(view.field, b.x, b.y, b.range);
-    for(const s of segs){
-      const k = s.x + ',' + s.y;
-      live.add(k);
-      mem.set(k, t + RECENT_DANGER_FADE);
-    }
-  }
-  for(const [k, expires] of [...mem.entries()]){
-    if(!live.has(k) && expires < t) mem.delete(k);
-  }
-}
-
-function recentDangerPenalty(mem, k, t){
-  const expires = mem.get(k);
-  if(expires === undefined) return 0;
-  const remaining = expires - t;
-  if(remaining <= 0) return 0;
-  return RECENT_DANGER_PENALTY * (remaining / RECENT_DANGER_FADE);
-}
-
-/* ====================================================
-   Tile passability and BFS with arrival-time safety.
+   BFS helpers + danger map.
    ==================================================== */
 
 function isPassable(view, me, tx, ty){
@@ -295,39 +259,63 @@ function isPassable(view, me, tx, ty){
   return true;
 }
 
-/* Count free neighbour tiles (used as a tile-quality signal — more exits
-   is generally better). */
-function exitCount(view, me, tx, ty){
-  let n = 0;
-  for(const [dx, dy] of CARDINALS){
-    if(isPassable(view, me, tx + dx, ty + dy)) n++;
+function buildDangerMap(view){
+  /* Chain-aware: a bomb in another bomb's blast inherits the smaller fuse. */
+  const bombs = view.bombs;
+  const eff = new Map();
+  for(const b of bombs) eff.set(b.id, b.detonating ? 0 : Math.max(0, b.fuse));
+  let changed = true;
+  while(changed){
+    changed = false;
+    for(const a of bombs){
+      const aFuse = eff.get(a.id);
+      const aSegs = computeExplosionSegments(view.field, a.x, a.y, a.range);
+      for(const s of aSegs){
+        for(const b of bombs){
+          if(b.id === a.id) continue;
+          if(b.x === s.x && b.y === s.y){
+            const bFuse = eff.get(b.id);
+            if(aFuse < bFuse){ eff.set(b.id, aFuse); changed = true; }
+          }
+        }
+      }
+    }
   }
-  return n;
+  const map = new Map();
+  for(const b of bombs){
+    const fuse = eff.get(b.id);
+    const segs = computeExplosionSegments(view.field, b.x, b.y, b.range);
+    for(const s of segs){
+      const k = s.x + ',' + s.y;
+      const cur = map.get(k);
+      if(cur === undefined || fuse < cur) map.set(k, fuse);
+    }
+  }
+  return map;
 }
 
-/* BFS that visits every tile reachable via a path where every step satisfies
-   `arriveT + margin < blastT`.  Returns Map: 'x,y' -> { dist, prev }.  prev
-   lets us reconstruct full paths for committed plans. */
-function bfsSafe(view, me, danger, margin = SAFETY_MARGIN, startTx, startTy){
+/* BFS that visits every tile reachable from `me` via passable, safe-on-
+   arrival tiles.  Used for general planning. */
+function bfsSafe(me, view, danger, startTx, startTy){
   const speed = Math.max(me.speed, 1);
-  const myTx = startTx !== undefined ? startTx : Math.floor(me.x);
-  const myTy = startTy !== undefined ? startTy : Math.floor(me.y);
+  const sx = startTx !== undefined ? startTx : Math.floor(me.x);
+  const sy = startTy !== undefined ? startTy : Math.floor(me.y);
   const visited = new Map();
-  visited.set(myTx + ',' + myTy, { dist: 0, prev: null });
-  const queue = [[myTx, myTy, 0]];
+  visited.set(sx + ',' + sy, { dist: 0, prev: null });
+  const queue = [[sx, sy, 0]];
   while(queue.length){
-    const [x, y, dist] = queue.shift();
-    if(dist > BFS_LIMIT) continue;
+    const [x, y, d] = queue.shift();
+    if(d > BFS_LIMIT) continue;
     for(const [dx, dy] of CARDINALS){
       const nx = x + dx, ny = y + dy;
       const k = nx + ',' + ny;
       if(visited.has(k)) continue;
       if(!isPassable(view, me, nx, ny)) continue;
-      const arriveT = (dist + 1) / speed;
+      const arriveT = (d + 1) / speed;
       const blastT = danger.get(k);
-      if(blastT !== undefined && blastT < arriveT + margin) continue;
-      visited.set(k, { dist: dist + 1, prev: [x, y] });
-      queue.push([nx, ny, dist + 1]);
+      if(blastT !== undefined && blastT < arriveT + ESCAPE_MARGIN) continue;
+      visited.set(k, { dist: d + 1, prev: [x, y] });
+      queue.push([nx, ny, d + 1]);
     }
   }
   return visited;
@@ -342,253 +330,92 @@ function reconstructPath(visited, fromTx, fromTy, toTx, toTy){
     if(!node || !node.prev) return null;
     cur = node.prev;
   }
-  return path;   // does NOT include the starting tile
+  return path;
 }
 
-/* Find the best escape and return the FULL path tile-by-tile.
-   Tier 1: closest tile not in any blast.
-   Tier 2: closest tile with the latest blast time (buys time to plan further). */
-function findEscapePath(view, me, danger){
-  const visited = bfsSafe(view, me, danger, SAFETY_MARGIN);
-  const myTx = Math.floor(me.x);
-  const myTy = Math.floor(me.y);
-  let bestSafe = null;
-  let bestDelayed = null;
-  for(const [k, info] of visited){
-    if(info.dist === 0) continue;
-    const blastT = danger.get(k);
-    const [x, y] = k.split(',').map(Number);
-    if(blastT === undefined){
-      const score = -info.dist + exitCount(view, me, x, y) * 0.3;
-      if(!bestSafe || score > bestSafe.score){
-        bestSafe = { tx: x, ty: y, score, dist: info.dist };
-      }
-    } else {
-      const score = blastT - info.dist * 0.15;
-      if(!bestDelayed || score > bestDelayed.score){
-        bestDelayed = { tx: x, ty: y, score, dist: info.dist };
+/* Compute a complete ESCAPE PATH from a hypothetical-bomb tile to a
+   permanently-safe destination, returning [[x,y],...] or null. */
+function computeEscape(me, view, bx, by){
+  /* Hypothetical danger map = current bombs + new bomb at (bx,by). */
+  const hyDanger = new Map();
+  const allBombs = [...view.bombs, { id: -1, x: bx, y: by, range: me.range, fuse: FUSE_SECONDS, detonating: false }];
+  const eff = new Map();
+  for(const b of allBombs) eff.set(b.id, b.detonating ? 0 : Math.max(0, b.fuse));
+  let changed = true;
+  while(changed){
+    changed = false;
+    for(const a of allBombs){
+      const aFuse = eff.get(a.id);
+      const aSegs = computeExplosionSegments(view.field, a.x, a.y, a.range);
+      for(const s of aSegs){
+        for(const b of allBombs){
+          if(b.id === a.id) continue;
+          if(b.x === s.x && b.y === s.y){
+            const bFuse = eff.get(b.id);
+            if(aFuse < bFuse){ eff.set(b.id, aFuse); changed = true; }
+          }
+        }
       }
     }
   }
-  const target = bestSafe || bestDelayed;
-  if(!target) return null;
-  const path = reconstructPath(visited, myTx, myTy, target.tx, target.ty);
-  if(!path) return null;
-  return { tx: target.tx, ty: target.ty, path };
-}
+  for(const b of allBombs){
+    const fuse = eff.get(b.id);
+    const segs = computeExplosionSegments(view.field, b.x, b.y, b.range);
+    for(const s of segs){
+      const k = s.x + ',' + s.y;
+      const cur = hyDanger.get(k);
+      if(cur === undefined || fuse < cur) hyDanger.set(k, fuse);
+    }
+  }
 
-/* Verify that placing a bomb at (tx,ty) leaves a complete safe escape path
-   the CPU can actually walk before the bomb's effective fuse runs out.
-   Returns the full escape path (list of tiles) or null. */
-function computeEscapeAfterBomb(view, me, tx, ty){
-  const hypoBomb = {
-    id: -1, x: tx, y: ty, range: me.range,
-    fuse: FUSE_SECONDS, detonating: false,
-  };
-  const hyDanger = buildHypotheticalDanger(view, hypoBomb);
-  /* BFS starts AT the bomb tile (where we'll be standing when we plant)
-     — this is what the spec means by "verify a safe escape exists from
-     here".  Without this override the BFS would start at the CPU's current
-     tile, which is irrelevant for a bomb placed somewhere else. */
-  const visited = bfsSafe(view, me, hyDanger, ESCAPE_MARGIN, tx, ty);
+  /* BFS from (bx,by) under the hypothetical danger.  Find the closest
+     permanently-safe tile (not in any blast) AT LEAST 2 tiles past the
+     last blast tile in our chosen direction — body extent (half=0.4) will
+     otherwise leave the AABB straddling the previous (blast) tile when
+     the CPU stops.  We approximate this by requiring dist ≥ range + 2:
+     for range-2 bombs, dist ≥ 4. */
+  const visited = bfsSafe(me, view, hyDanger, bx, by);
+  const minDist = me.range + 2;
   let best = null;
   for(const [k, info] of visited){
-    if(info.dist < MIN_ESCAPE_DIST) continue;   // too close to the blast
-    if(hyDanger.has(k)) continue;               // must be permanently safe
-    const [x, y] = k.split(',').map(Number);
-    const exits = exitCount(view, me, x, y);
-    if(exits < 2) continue;                     // dead-end won't do — need options
-    /* Prefer slightly closer ESCAPES once we're past MIN_ESCAPE_DIST, but
-       weight exits heavily so we land on a tile with breathing room. */
-    const score = -info.dist + exits * 0.6;
-    if(!best || score > best.score){
-      best = { tx: x, ty: y, score, dist: info.dist };
+    if(info.dist < minDist) continue;
+    if(hyDanger.has(k)) continue;
+    if(!best || info.dist < best.dist){
+      const [x, y] = k.split(',').map(Number);
+      best = { x, y, dist: info.dist };
     }
   }
   if(!best) return null;
-  const path = reconstructPath(visited, tx, ty, best.tx, best.ty);
-  if(!path) return null;
-  return { tx: best.tx, ty: best.ty, path };
+  return reconstructPath(visited, bx, by, best.x, best.y);
 }
 
-/* ====================================================
-   Plan execution and validation.
-   ==================================================== */
-
-function planComplete(plan, me){
-  if(!plan.path || plan.stepIdx >= plan.path.length) return true;
-  /* The LAST step is the destination tile centre.  Done when we're on it
-     and centred. */
-  if(plan.stepIdx === plan.path.length - 1){
-    const [tx, ty] = plan.path[plan.path.length - 1];
-    return tileReached(me, { tx, ty });
-  }
-  return false;
-}
-
-/* Re-validates the next path step against the current danger map.  If the
-   tile we'd step onto would explode under us, return false. */
-function planStepStillSafe(plan, view, me, danger){
-  if(!plan.path) return false;
-  if(plan.stepIdx >= plan.path.length) return false;
-  const speed = Math.max(me.speed, 1);
-  /* Validate the rest of the path, not just the next step — a new bomb may
-     have appeared further along it. */
-  for(let i = plan.stepIdx; i < plan.path.length; i++){
-    const [x, y] = plan.path[i];
-    if(!isPassable(view, me, x, y)) return false;
-    const arriveT = (i - plan.stepIdx + 1) / speed;
-    const blastT = danger.get(x + ',' + y);
-    const margin = plan.kind === 'retreat' ? ESCAPE_MARGIN : SAFETY_MARGIN;
-    if(blastT !== undefined && blastT < arriveT + margin){
-      /* For a retreat we further require the FINAL tile is permanently safe. */
-      if(plan.kind === 'retreat' && i === plan.path.length - 1) return false;
-      if(plan.kind !== 'retreat') return false;
-    }
-  }
-  return true;
-}
-
-function attackTargetStillValuable(target, view, me){
-  if(!target) return false;
-  /* Recompute crate/enemy hit count at this tile.  Any positive value keeps
-     the plan alive. */
-  const segs = computeExplosionSegments(view.field, target.tx, target.ty, me.range);
-  for(const p of view.players){
-    if(p.idx === me.idx || !p.alive) continue;
-    const ex = Math.floor(p.x), ey = Math.floor(p.y);
-    for(const s of segs){
-      if(s.x === ex && s.y === ey) return true;
-    }
-  }
-  for(const s of segs){
-    if(view.field.at(s.x, s.y) === TILE.BOX) return true;
-  }
-  return false;
-}
-
-function pickupStillThere(target, view){
-  return view.pickups.some(p => p.x === target.tx && p.y === target.ty);
-}
-
-function executePlan(plan, me, view, danger){
-  if(!plan || !plan.path || plan.path.length === 0) return null;
-  /* Advance stepIdx when we've reached the current step's tile. */
-  let [tx, ty] = plan.path[plan.stepIdx];
-  while(plan.stepIdx < plan.path.length - 1
-        && Math.floor(me.x) === tx
-        && Math.floor(me.y) === ty){
-    plan.stepIdx++;
-    [tx, ty] = plan.path[plan.stepIdx];
-  }
-  return walkToward(me, [tx, ty]);
-}
-
-/* ====================================================
-   Goal selection.
-   ==================================================== */
-
-function choosePlan(view, me, danger, recentDanger, t, isMean, noise, prevCompletedTile){
-  const visited = bfsSafe(view, me, danger, SAFETY_MARGIN);
-  const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
-  const enemyTiles = new Set(enemies.map(e => Math.floor(e.x) + ',' + Math.floor(e.y)));
-  const myTx = Math.floor(me.x);
-  const myTy = Math.floor(me.y);
-  const candidates = [];
-
+/* Survival reflex: find the closest tile not in any blast, return a single
+   step toward it. */
+function findFleeStep(me, view, danger){
+  const visited = bfsSafe(me, view, danger);
+  const myTx = Math.floor(me.x), myTy = Math.floor(me.y);
+  let best = null;
   for(const [k, info] of visited){
-    const [x, y] = k.split(',').map(Number);
-    const tileSafe = !danger.has(k);
-    const recPenalty = recentDangerPenalty(recentDanger, k, t);
-    /* Backtrack penalty: when picking a fresh plan, the tile we just
-       completed our previous plan on is the most "boring" possible target
-       — going right back where we came from is the textbook oscillation.
-       The penalty is small (8) so it only nudges away from immediate
-       backtrack, not from genuinely strategic targets. */
-    const backtrackPenalty = prevCompletedTile && k === prevCompletedTile ? 8 : 0;
-
-    /* PICKUP — must be permanently safe and reachable. */
-    if(tileSafe && info.dist > 0){
-      const pu = view.pickups.find(p => p.x === x && p.y === y);
-      if(pu){
-        const value = PICKUP_VALUE[pu.type] ?? 30;
-        if(value > 0){
-          candidates.push({
-            kind: 'pickup',
-            target: { tx: x, ty: y, type: pu.type },
-            score: value - info.dist * 4 - recPenalty - backtrackPenalty,
-            dist: info.dist,
-          });
-        } else if(value < 0){
-          continue;   // never path to a curse
-        }
-      }
-    }
-
-    /* ATTACK — bomb here.  Two requirements:
-         a) computeEscapeAfterBomb returns a real path (verified safe);
-         b) the bomb hits at least one crate or enemy. */
-    if(me.bombsLive < me.bombMax){
-      const segs = computeExplosionSegments(view.field, x, y, me.range);
-      let crates = 0, enemyHits = 0, cratesNearEnemy = 0;
-      for(const s of segs){
-        if(view.field.at(s.x, s.y) === TILE.BOX){
-          crates++;
-          for(const e of enemies){
-            const ex = Math.floor(e.x), ey = Math.floor(e.y);
-            if(Math.abs(s.x - ex) + Math.abs(s.y - ey) <= 4){ cratesNearEnemy++; break; }
-          }
-        }
-        if(enemyTiles.has(s.x + ',' + s.y)) enemyHits++;
-      }
-      if(crates > 0 || enemyHits > 0){
-        /* Validate escape path BEFORE adding as a candidate.  This is the
-           single biggest self-kill defence: we never plant a bomb whose
-           escape we haven't already proved walkable. */
-        const escape = computeEscapeAfterBomb(view, me, x, y);
-        if(escape){
-          const score = crates * 22
-                      + cratesNearEnemy * 14
-                      + enemyHits * (isMean ? 280 : 220)
-                      - info.dist * 5
-                      - recPenalty
-                      - backtrackPenalty;
-          candidates.push({
-            kind: 'attack',
-            target: { tx: x, ty: y },
-            attackEscape: escape,
-            score,
-            dist: info.dist,
-          });
-        }
-      }
-    }
-
-    /* POSITION — controlled tile with many exits, not too close to walls. */
-    if(tileSafe && info.dist > 0){
-      const exits = exitCount(view, me, x, y);
-      const distFromCornerBonus = exits * 4;
-      /* Prefer to put space between us and dangerous areas. */
-      candidates.push({
-        kind: 'position',
-        target: { tx: x, ty: y },
-        score: distFromCornerBonus + Math.min(info.dist, 12) * 0.7 - recPenalty - backtrackPenalty,
-        dist: info.dist,
-      });
+    if(info.dist === 0) continue;
+    if(danger.has(k)) continue;
+    if(!best || info.dist < best.dist){
+      const [x, y] = k.split(',').map(Number);
+      best = { x, y, dist: info.dist };
     }
   }
-
-  /* Apply small per-CPU noise for human-like variation. */
-  for(const c of candidates) c.score += noise;
-
-  if(candidates.length === 0) return null;
-  candidates.sort((a, b) => b.score - a.score);
-  const best = candidates[0];
-
-  /* Build a plan with a concrete path. */
-  const path = reconstructPath(visited, myTx, myTy, best.target.tx, best.target.ty);
-  if(!path && !(best.target.tx === myTx && best.target.ty === myTy)) return null;
-  return { kind: best.kind, target: best.target, path: path || [], stepIdx: 0 };
+  if(!best){
+    /* Truly trapped — pick any passable neighbour. */
+    for(const [dx, dy] of CARDINALS){
+      if(isPassable(view, me, myTx + dx, myTy + dy)){
+        return { x: myTx + dx, y: myTy + dy };
+      }
+    }
+    return null;
+  }
+  /* Walk the first step of the path toward the safe tile. */
+  const path = reconstructPath(visited, myTx, myTy, best.x, best.y);
+  if(!path || path.length === 0) return null;
+  return { x: path[0][0], y: path[0][1] };
 }
 
 /* ====================================================
@@ -596,12 +423,12 @@ function choosePlan(view, me, danger, recentDanger, t, isMean, noise, prevComple
    ==================================================== */
 
 function tileReached(me, target){
-  return Math.abs(me.x - (target.tx + 0.5)) < ARRIVE_EPS
-      && Math.abs(me.y - (target.ty + 0.5)) < ARRIVE_EPS;
+  return Math.abs(me.x - (target.x + 0.5)) < ARRIVE_EPS
+      && Math.abs(me.y - (target.y + 0.5)) < ARRIVE_EPS;
 }
 
-function walkToward(me, [nx, ny]){
-  const cx = nx + 0.5, cy = ny + 0.5;
+function walkToward(me, target){
+  const cx = target.x + 0.5, cy = target.y + 0.5;
   const dxr = cx - me.x, dyr = cy - me.y;
   const adx = Math.abs(dxr), ady = Math.abs(dyr);
   let dx = 0, dy = 0;
@@ -612,36 +439,33 @@ function walkToward(me, [nx, ny]){
   return { dx, dy, bomb: false };
 }
 
-/* Wander toward a tile with more exits than my current one.  Only used as
-   a last-resort fallback after no real plan is available.  Crucial: refuse
-   ANY tile that's inside a blast — even if safe-on-arrival.  Wandering into
-   a blast just because we have nothing better to do is exactly how the CPU
-   ends up dead next to its own bomb when there are no goals beyond the
-   blast zone. */
-function pickControlledStep(view, me, danger, recentDanger, t){
-  const myTx = Math.floor(me.x), myTy = Math.floor(me.y);
-  let best = null;
-  for(const [dx, dy] of CARDINALS){
-    const nx = myTx + dx, ny = myTy + dy;
-    if(!isPassable(view, me, nx, ny)) continue;
-    if(danger.has(nx + ',' + ny)) continue;
-    const score = exitCount(view, me, nx, ny)
-                - recentDangerPenalty(recentDanger, nx + ',' + ny, t) * 0.5;
-    if(!best || score > best.score){
-      best = { dx, dy, score };
-    }
-  }
-  if(!best) return null;
-  return { dx: best.dx, dy: best.dy, bomb: false };
-}
-
-function anyPassableNeighborCmd(view, me, myTx, myTy){
-  for(const [dx, dy] of CARDINALS){
-    if(isPassable(view, me, myTx + dx, myTy + dy)){
-      return { dx, dy, bomb: false };
-    }
-  }
-  return null;
-}
-
 function idle(){ return { dx: 0, dy: 0, bomb: false }; }
+
+/* True if the current route ends on a tile that's permanently safe — meaning
+   the committed plan WILL deliver us to safety.  Used to suppress the
+   survival reflex while we're correctly executing our own escape. */
+function routeWillSave(route, stepIdx, danger){
+  if(!route || stepIdx >= route.steps.length) return false;
+  const last = route.steps[route.steps.length - 1];
+  return !danger.has(last.x + ',' + last.y);
+}
+
+/* Check if the very next tile we'd walk onto is still safe to enter.  We
+   don't validate the entire remaining path (the user wants commitment),
+   only the immediate next step.  This catches the most common failure:
+   another CPU dropped a bomb between our planning and now.
+
+   Transit tiles (we'll walk through and off) only need a small buffer.
+   The final step (where we stop) needs the full ESCAPE_MARGIN. */
+function nextStepStillSafe(route, stepIdx, danger, me){
+  if(!route || stepIdx >= route.steps.length) return true;
+  const step = route.steps[stepIdx];
+  if(step.kind === 'bomb') return true;
+  const speed = Math.max(me.speed, 1);
+  const arriveT = 1 / speed;
+  const blastT = danger.get(step.x + ',' + step.y);
+  if(blastT === undefined) return true;
+  const isFinal = stepIdx === route.steps.length - 1;
+  const buffer = isFinal ? ESCAPE_MARGIN : 0.3;
+  return blastT > arriveT + buffer;
+}
