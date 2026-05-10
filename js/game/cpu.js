@@ -52,11 +52,22 @@ export function createCpuController(level = 'nice'){
      first bomb on the same tick.  Synchronised early bombs make the field
      unplannable: every CPU's escape route gets cut by a neighbour's bomb. */
   const startupDelay = Math.random() * 1.5;
+  /* Track the previous tile we were on so EXPLORE can avoid the
+     "ping-pong between adjacent tiles in a tight spawn corner" case:
+     when the only EXPLORE candidate is the tile we just came from, we
+     idle instead of walking back. */
+  let prevTile = null;
+  let curTile = null;
 
   return {
     decide(me, view){
       const myTx = Math.floor(me.x);
       const myTy = Math.floor(me.y);
+      const tileKey = myTx + ',' + myTy;
+      if(curTile !== null && curTile !== tileKey){
+        prevTile = curTile;
+      }
+      curTile = tileKey;
       const danger = buildDangerMap(view);
 
       /* ── SURVIVAL REFLEX ──────────────────────────────────────────────
@@ -106,7 +117,7 @@ export function createCpuController(level = 'nice'){
           return idle();
         }
         const allowBomb = view.elapsed >= startupDelay;
-        route = planRoute(me, view, danger, allowBomb);
+        route = planRoute(me, view, danger, allowBomb, prevTile);
         stepIdx = 0;
         if(!route) return idle();
       }
@@ -157,7 +168,7 @@ export function createCpuController(level = 'nice'){
    Route planning — try each priority in order.
    ==================================================== */
 
-function planRoute(me, view, danger, allowBomb = true){
+function planRoute(me, view, danger, allowBomb = true, prevTile = null){
   /* BFS reachability — every path tile must be currently passable AND
      safe-on-arrival under the current danger map. */
   const reach = bfsSafe(me, view, danger);
@@ -179,7 +190,7 @@ function planRoute(me, view, danger, allowBomb = true){
     const clear = planClear(me, view, danger, reach);
     if(clear) return clear;
   }
-  return planExplore(me, view, reach);
+  return planExplore(me, view, reach, prevTile);
 }
 
 /* Goal 1: enemy is on a tile we can already reach.  Prefer ATTACK (a bomb
@@ -237,18 +248,24 @@ function planEnemyGoal(me, view, reach, allowBomb){
 
 /* Goal 4 (always-on fallback): EXPLORE — pick the farthest reachable safe
    tile and walk there.  Never returns null as long as ANY neighbour is
-   reachable. */
-function planExplore(me, view, reach){
-  const myTx = Math.floor(me.x), myTy = Math.floor(me.y);
+   reachable, EXCEPT when the only candidate at max distance is the tile
+   we just came from (prevTile).  Without that exception, a CPU stuck in
+   a tight 2-3-tile spawn corner would ping-pong between the two adjacent
+   tiles forever — visible to the user as the back-and-forth.  Returning
+   null lets the outer idle path keep us put until the world changes. */
+function planExplore(me, view, reach, prevTile = null){
   let best = null;
   for(const [k, info] of reach){
     if(info.dist === 0) continue;
     if(!best || info.dist > best.dist){
       const [x, y] = k.split(',').map(Number);
-      best = { x, y, dist: info.dist };
+      best = { x, y, dist: info.dist, key: k };
     }
   }
   if(!best) return null;
+  /* Refuse to walk back to the tile we just left if it's the only
+     "farthest" candidate we found — that's the ping-pong case. */
+  if(best.dist === 1 && best.key === prevTile) return null;
   return assembleRoute('explore', me, reach, best.x, best.y, false, null);
 }
 
