@@ -279,29 +279,38 @@ export function createEngine(lobby, hooks, opts = {}){
       }
     }
 
-    /* 2a. Step kicked bombs — one tile per KICK_STEP_INTERVAL until they hit
-       an obstacle (wall, box, another bomb, or a player). */
+    /* 2a. Step kicked bombs — one tile per KICK_STEP_INTERVAL.  A kicked
+       bomb keeps moving in its kickDir until it detonates: it HOPS OVER
+       walls, boxes, and other bombs, and WRAPS AROUND the field edges
+       (toroidal).  The only thing that can stop it is its own fuse. */
     for(const b of bombs){
       if(!b.kickDir) continue;
       if(elapsed < (b.kickNextStep || 0)) continue;
-      const nx = b.x + b.kickDir.dx, ny = b.y + b.kickDir.dy;
-      let blocked = field.at(nx, ny) !== TILE.FLOOR;
-      if(!blocked && bombByTile.has(nx + ',' + ny)) blocked = true;
-      if(!blocked){
-        for(const other of players){
-          if(!other.alive) continue;
-          if(playerOnTile(other, nx, ny)){ blocked = true; break; }
-        }
+      let nx = b.x, ny = b.y;
+      const maxHops = field.width * field.height;
+      let found = false;
+      for(let hop = 0; hop < maxHops; hop++){
+        nx = (nx + b.kickDir.dx + field.width) % field.width;
+        ny = (ny + b.kickDir.dy + field.height) % field.height;
+        if(field.at(nx, ny) !== TILE.FLOOR) continue;
+        if(bombByTile.has(nx + ',' + ny)) continue;
+        found = true;
+        break;
       }
-      if(blocked){
-        b.kickDir = null;
-        b.kickNextStep = 0;
-      } else {
+      if(found){
         bombByTile.delete(b.x + ',' + b.y);
         b.x = nx; b.y = ny;
         bombByTile.set(b.x + ',' + b.y, b.id);
-        b.kickNextStep = elapsed + KICK_STEP_INTERVAL;
+        /* If we land on a tile a player's hitbox overlaps, hand them
+           passthrough so the bomb-on-our-tile freeze can't kick in. */
+        for(const o of players){
+          if(!o.alive) continue;
+          for(const [otx, oty] of tilesUnderPlayer(o)){
+            if(otx === nx && oty === ny){ o.passthrough.add(b.id); break; }
+          }
+        }
       }
+      b.kickNextStep = elapsed + KICK_STEP_INTERVAL;
     }
 
     /* 2a-eq. Earthquake — every EARTHQUAKE_INTERVAL while the effect is
