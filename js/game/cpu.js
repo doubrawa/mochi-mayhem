@@ -40,8 +40,8 @@ const STUCK_TICKS_MAX = 8;          // can't move for this many ticks → abando
 const PICKUP_VALUE = {
   bomb: 100, fire: 100, shield: 80,
   remote: 70, ghost: 60, kick: 60, magnet: 50, slow: 40,
-  hook: 60, dash: 60, earthquake: 50,
-  curse: -1,
+  dash: 60, earthquake: 50,
+  curse: -1, confuse: -1,
 };
 
 export function createCpuController(level = 'nice'){

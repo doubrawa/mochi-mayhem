@@ -49,6 +49,7 @@ export function createPlayer(slot, schemeId, charId, controllerType, displayName
     shieldStacks: 0,
     ghostUntil:   0,             // engine-elapsed seconds
     slowUntil:    0,
+    confusedUntil:0,             // controls inverted while elapsed < this
     collected:    [],            // types collected this round, for HUD
   };
 }
@@ -120,7 +121,9 @@ export function stepPlayer(p, dx, dy, dt, field, solidBombTiles, elapsed){
 /* True iff a HALF-sized AABB centered at (cx,cy) sits on walkable tiles only.
    `solidBombTiles` is an optional Set of "x,y" keys that should be treated
    as blocking (bombs the player is not allowed to walk through).
-   When `ghosting` is true, walls and boxes don't block. */
+   When `ghosting` is true, BOXES become passable but PILLARS and the
+   world boundary still block — otherwise the ghost can wander into a
+   pillar or off-map and be permanently stuck when the effect ends. */
 function canFit(field, cx, cy, solidBombTiles, ghosting){
   const x0 = Math.floor(cx - HALF);
   const x1 = Math.floor(cx + HALF);
@@ -128,9 +131,13 @@ function canFit(field, cx, cy, solidBombTiles, ghosting){
   const y1 = Math.floor(cy + HALF);
   for(let y = y0; y <= y1; y++){
     for(let x = x0; x <= x1; x++){
-      /* World boundary always blocks, even while ghosting. */
       if(x < 0 || y < 0 || x >= field.width || y >= field.height) return false;
-      if(!ghosting && field.at(x, y) !== TILE.FLOOR) return false;
+      const tile = field.at(x, y);
+      if(ghosting){
+        if(tile === TILE.PILLAR) return false;
+      } else {
+        if(tile !== TILE.FLOOR) return false;
+      }
       if(solidBombTiles && solidBombTiles.has(x + ',' + y)) return false;
     }
   }

@@ -12,7 +12,7 @@ export const PICKUP_POOL = [
   'bomb', 'bomb', 'fire', 'fire',
   'remote', 'shield', 'ghost', 'slow',
   'kick', 'magnet', 'curse',
-  'hook', 'dash', 'earthquake',
+  'confuse', 'dash', 'earthquake',
 ];
 
 /* Caps so a runaway match doesn't produce comical superplayers. */
@@ -36,10 +36,10 @@ export const KICK_STEP_INTERVAL = 0.12;
 /* Earthquake: total duration and how often bombs jiggle a tile. */
 export const EARTHQUAKE_DURATION = 3;
 export const EARTHQUAKE_INTERVAL = 0.5;
-/* Hook: max tiles the grappling hook can travel before stopping. */
-export const HOOK_MAX_RANGE = 12;
 /* Dash: how many tiles forward the dash carries the player. */
 export const DASH_TILES = 2;
+/* Confuse: how long (seconds) the picker's own controls are inverted. */
+export const CONFUSE_DURATION = 5;
 
 let nextPickupId = 1;
 
@@ -84,10 +84,10 @@ export function applyPickup(player, type, ctx){
     case 'curse':
       player.slowUntil = Math.max(player.slowUntil || 0, ctx.elapsed + CURSE_DURATION);
       break;
-    /* Hook — fires a grappling hook in the player's facing direction and
-       teleports them up to the tile just before the first obstacle. */
-    case 'hook':
-      ctx.hook(player);
+    /* Confuse — flips the picker's own movement controls for a few
+       seconds.  Self-debuff: a tempting but punishing pickup. */
+    case 'confuse':
+      player.confusedUntil = Math.max(player.confusedUntil || 0, ctx.elapsed + CONFUSE_DURATION);
       break;
     /* Dash — short forward sprint, passes through bombs but not walls,
        crates, or other players. */

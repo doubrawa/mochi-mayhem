@@ -12,7 +12,7 @@ import {
   createPickup, pickRandomPickup, applyPickup,
   DROP_CHANCE, SLOW_DURATION,
   MAGNET_RADIUS, MAGNET_STEP_INTERVAL, KICK_STEP_INTERVAL,
-  EARTHQUAKE_DURATION, EARTHQUAKE_INTERVAL, HOOK_MAX_RANGE, DASH_TILES,
+  EARTHQUAKE_DURATION, EARTHQUAKE_INTERVAL, DASH_TILES,
 } from './pickups.js';
 import { createCpuController } from './cpu.js';
 
@@ -72,28 +72,7 @@ export function createEngine(lobby, hooks, opts = {}){
     }
   }
 
-  /* Hook — ray-cast in the player's facing direction, teleport them to the
-     tile just before the first wall, crate, bomb, or other player. */
   const FACING_DIR = { left:[-1,0], right:[1,0], up:[0,-1], down:[0,1] };
-  function hookPull(player){
-    const dir = FACING_DIR[player.facing] || FACING_DIR.down;
-    const startX = Math.floor(player.x), startY = Math.floor(player.y);
-    let landX = startX, landY = startY;
-    for(let step = 1; step <= HOOK_MAX_RANGE; step++){
-      const nx = startX + dir[0] * step, ny = startY + dir[1] * step;
-      if(field.at(nx, ny) !== TILE.FLOOR) break;
-      if(bombByTile.has(nx + ',' + ny)) break;
-      let blockedByPlayer = false;
-      for(const o of players){
-        if(o === player || !o.alive) continue;
-        if(playerOnTile(o, nx, ny)){ blockedByPlayer = true; break; }
-      }
-      if(blockedByPlayer) break;
-      landX = nx; landY = ny;
-    }
-    player.x = landX + 0.5;
-    player.y = landY + 0.5;
-  }
 
   /* Dash — short forward sprint of DASH_TILES tiles in the player's
      facing direction.  Passes through bombs but stops at walls, crates,
@@ -132,7 +111,6 @@ export function createEngine(lobby, hooks, opts = {}){
     return {
       elapsed,
       slowOthers,
-      hook: hookPull,
       dash: dashForward,
       startEarthquake,
     };
@@ -191,6 +169,12 @@ export function createEngine(lobby, hooks, opts = {}){
         continue;   // 'off' — filtered above, but safe
       }
       prevBomb.set(p.idx, r.bomb);
+
+      /* Confuse: invert both movement axes for the picker.  Applied here
+         so every downstream consumer (kick check, stepPlayer) sees the
+         same flipped direction — the user's controls feel uniformly
+         reversed, including which bomb they would kick. */
+      if(elapsed < (p.confusedUntil || 0)){ r.dx = -r.dx; r.dy = -r.dy; }
 
       const ghosting = elapsed < (p.ghostUntil || 0);
       const solid = new Set();
