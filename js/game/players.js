@@ -42,8 +42,6 @@ export function createPlayer(slot, schemeId, charId, controllerType, displayName
     passthrough: new Set(),
     /* Power-up state. */
     hasRemote:    false,
-    hasSuper:     false,         // primed: next placed bomb is super
-    hasBoomerang: false,         // primed: next placed bomb fires two waves
     hasKick:      false,
     hasGlove:     false,
     hasIce:       false,

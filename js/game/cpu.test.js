@@ -21,7 +21,7 @@ function makePlayer(idx, sx, sy){
     x: sx + 0.5, y: sy + 0.5, speed: 4.5, facing: 'down',
     alive: true, bombMax: 1, bombsLive: 0, range: 2,
     passthrough: new Set(),
-    hasRemote: false, hasSuper: false, hasBoomerang: false, hasKick: false,
+    hasRemote: false, hasKick: false,
     hasGlove: false, hasIce: false, hasMagnet: false,
     shieldStacks: 0, ghostUntil: 0, slowUntil: 0, collected: [],
   };
@@ -113,14 +113,8 @@ export function runMatch({ seed, presetId = 'medium', cpuCount = 6, dt = 0.05, m
       if(r.bombEdge && p.bombsLive < p.bombMax){
         const tx = Math.floor(p.x), ty = Math.floor(p.y);
         if(field.at(tx, ty) === TILE.FLOOR && !bombByTile.has(tx+','+ty)){
-          const range = p.hasSuper ? Math.max(field.width, field.height) : p.range;
-          const bomb = createBomb({ ownerIdx: p.idx, x: tx, y: ty, range });
+          const bomb = createBomb({ ownerIdx: p.idx, x: tx, y: ty, range: p.range });
           if(p.hasRemote) bomb.fuse = Infinity;
-          if(p.hasSuper){ bomb.super = true; p.hasSuper = false; }
-          if(p.hasBoomerang){
-            bomb.boomerang = { phase: 1, fullRange: p.range, delay: 0.5 };
-            p.hasBoomerang = false;
-          }
           bombs.push(bomb);
           bombByTile.set(tx+','+ty, bomb.id);
           p.bombsLive++;
@@ -146,8 +140,7 @@ export function runMatch({ seed, presetId = 'medium', cpuCount = 6, dt = 0.05, m
       if(idx >= 0) bombs.splice(idx, 1);
       bombByTile.delete(b.x+','+b.y);
       const owner = players.find(p => p.idx === b.ownerIdx);
-      const isBoomerang1 = b.boomerang && b.boomerang.phase === 1;
-      if(owner && !isBoomerang1) owner.bombsLive = Math.max(0, owner.bombsLive - 1);
+      if(owner) owner.bombsLive = Math.max(0, owner.bombsLive - 1);
       const segs = computeExplosionSegments(field, b.x, b.y, b.range);
       explosions.push({ segments: segs, ttl: EXPLOSION_TTL });
       for(const s of segs){
@@ -184,14 +177,6 @@ export function runMatch({ seed, presetId = 'medium', cpuCount = 6, dt = 0.05, m
             });
           }
         }
-      }
-      if(isBoomerang1){
-        const phase2 = createBomb({ ownerIdx: b.ownerIdx, x: b.x, y: b.y, range: b.boomerang.fullRange });
-        phase2.fuse = b.boomerang.delay;
-        phase2.boomerang = { phase: 2 };
-        bombs.push(phase2);
-        bombByTile.set(phase2.x+','+phase2.y, phase2.id);
-        if(owner) owner.passthrough.add(phase2.id);
       }
     }
 

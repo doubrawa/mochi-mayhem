@@ -5,20 +5,19 @@
 /* Drop probabilities for the lobby slider's three positions. */
 export const DROP_CHANCE = [0.15, 0.30, 0.50];
 
-/* All 12 power-ups now have working mechanics — drop pool covers everything.
-   `bomb` and `fire` appear three times so they're drawn at triple the rate
-   of the rest: extra carry slots and bigger blasts are the most playable
-   upgrades, so we want them to show up reliably. */
+/* Drop pool. `bomb` and `fire` appear three times so they're drawn at
+   triple the rate of the rest: extra carry slots and bigger blasts are
+   the most playable upgrades, so we want them to show up reliably. */
 export const PICKUP_POOL = [
   'bomb', 'bomb', 'bomb', 'fire', 'fire', 'fire',
-  'speed', 'remote', 'shield', 'super', 'ghost', 'slow',
-  'kick', 'magnet', 'curse', 'boomerang',
+  'remote', 'shield', 'ghost', 'slow',
+  'kick', 'magnet', 'curse',
+  'hook', 'swap', 'earthquake',
 ];
 
 /* Caps so a runaway match doesn't produce comical superplayers. */
 export const MAX_BOMBS = 8;
 export const MAX_RANGE = 8;
-export const MAX_SPEED = 8.5;
 
 /* Ghost duration (seconds while phasing through walls). */
 export const GHOST_DURATION = 5;
@@ -34,10 +33,11 @@ export const MAGNET_RADIUS = 4;
 export const MAGNET_STEP_INTERVAL = 0.25;
 /* Kick: how often a kicked bomb advances one tile (seconds). */
 export const KICK_STEP_INTERVAL = 0.12;
-/* Boomerang: first wave is short-range (1 tile), second wave fires after this
-   delay with the player's full bomb range. */
-export const BOOMERANG_FIRST_RANGE  = 1;
-export const BOOMERANG_SECOND_DELAY = 0.5;
+/* Earthquake: total duration and how often bombs jiggle a tile. */
+export const EARTHQUAKE_DURATION = 3;
+export const EARTHQUAKE_INTERVAL = 0.5;
+/* Hook: max tiles the grappling hook can travel before stopping. */
+export const HOOK_MAX_RANGE = 12;
 
 let nextPickupId = 1;
 
@@ -49,9 +49,9 @@ export function pickRandomPickup(rng = Math.random){
   return PICKUP_POOL[Math.floor(rng() * PICKUP_POOL.length)];
 }
 
-/* Apply a picked-up power-up to the player.  `slowOthers` is a callback the
-   engine provides so the slow power-up can reach into other players' state
-   without coupling pickups.js to the engine. */
+/* Apply a picked-up power-up to the player.  `ctx` exposes engine helpers
+   for effects that need access to world state (slow, hook, swap,
+   earthquake) — keeps pickups.js decoupled from engine internals. */
 export function applyPickup(player, type, ctx){
   switch(type){
     case 'bomb':
@@ -60,17 +60,11 @@ export function applyPickup(player, type, ctx){
     case 'fire':
       player.range = Math.min(MAX_RANGE, player.range + 1);
       break;
-    case 'speed':
-      player.speed = Math.min(MAX_SPEED, player.speed + 0.5);
-      break;
     case 'remote':
       player.hasRemote = true;
       break;
     case 'shield':
       player.shieldStacks = (player.shieldStacks || 0) + 1;
-      break;
-    case 'super':
-      player.hasSuper = true;
       break;
     case 'ghost':
       player.ghostUntil = ctx.elapsed + GHOST_DURATION;
@@ -88,10 +82,19 @@ export function applyPickup(player, type, ctx){
     case 'curse':
       player.slowUntil = Math.max(player.slowUntil || 0, ctx.elapsed + CURSE_DURATION);
       break;
-    /* Boomerang — primes the next placed bomb to fire in two waves: a tiny
-       blast on the fuse, then a full-range blast 0.5 s later. */
-    case 'boomerang':
-      player.hasBoomerang = true;
+    /* Hook — fires a grappling hook in the player's facing direction and
+       teleports them up to the tile just before the first obstacle. */
+    case 'hook':
+      ctx.hook(player);
+      break;
+    /* Swap — instantly trades positions with the nearest living enemy. */
+    case 'swap':
+      ctx.swap(player);
+      break;
+    /* Earthquake — for the next few seconds every live bomb jiggles one
+       tile in a random direction at a fixed cadence. */
+    case 'earthquake':
+      ctx.startEarthquake();
       break;
   }
   /* Maintain a list of all collected types for the HUD display. */

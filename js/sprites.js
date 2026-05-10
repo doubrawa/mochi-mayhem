@@ -24,21 +24,20 @@ export const CHAR_IDS = Object.keys(CHARS);
 export const PUPS = {
   bomb:   { nm:'Extra Bomb',  ds:'+1 carry slot',          sym:'#pu-bomb',   bg:'#b8ead6' },
   fire:   { nm:'Bigger Boom', ds:'+1 blast tile',          sym:'#pu-flame',  bg:'#ffc8a8' },
-  speed:  { nm:'Quick Feet',  ds:'+15% move speed',        sym:'#pu-speed',  bg:'#ffe9a8' },
   remote: { nm:'Remote',      ds:'detonate on tap',        sym:'#pu-remote', bg:'#b8ead6' },
   shield: { nm:'Shield',      ds:'tank one hit',           sym:'#pu-shield', bg:'#cfe9ff' },
-  super:  { nm:'Pierce',      ds:'blast cuts crates',      sym:'#pu-pierce', bg:'#ffd0d6' },
   ghost:  { nm:'Ghost',       ds:'phase through crates',   sym:'#pu-ghost',  bg:'#e0cef7' },
   slow:   { nm:'Slow-mo',     ds:'slows other buddies',    sym:'#pu-clock',  bg:'#ffe9a8' },
-  /* Visual-only, not in drop pool yet — shown in reference panel. */
   kick:   { nm:'Kick',        ds:'push bombs you bump',    sym:'#pu-kick',   bg:'#ffd0e0' },
   magnet: { nm:'Magnet',      ds:'pulls power-ups',        sym:'#pu-magnet', bg:'#ffd0d6' },
   curse:  { nm:'Curse',       ds:'rotten · 5s debuff',     sym:'#pu-skull',  bg:'#fff'    },
-  boomerang: { nm:'Boomerang', ds:'two-wave bomb',          sym:'#pu-boomerang', bg:'#ffe0c8' },
+  hook:       { nm:'Hook',       ds:'grapple to a wall',     sym:'#pu-hook',       bg:'#cfe9ff' },
+  swap:       { nm:'Swap',       ds:'trade spots w/ enemy',  sym:'#pu-swap',       bg:'#e0cef7' },
+  earthquake: { nm:'Earthquake', ds:'bombs jiggle 3s',       sym:'#pu-earthquake', bg:'#ffd0d6' },
 };
 
-/* All 12 IDs in display order for the reference panel. */
-export const ALL_PUP_IDS = ['fire','bomb','speed','kick','shield','ghost','slow','magnet','remote','super','curse','boomerang'];
+/* All powerup IDs in display order for the reference panel. */
+export const ALL_PUP_IDS = ['fire','bomb','kick','shield','ghost','slow','magnet','remote','curse','hook','swap','earthquake'];
 
 /* ====================================================
    Helpers — every function returns a real SVG element

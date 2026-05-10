@@ -12,7 +12,7 @@ import {
   createPickup, pickRandomPickup, applyPickup,
   DROP_CHANCE, SLOW_DURATION,
   MAGNET_RADIUS, MAGNET_STEP_INTERVAL, KICK_STEP_INTERVAL,
-  BOOMERANG_FIRST_RANGE, BOOMERANG_SECOND_DELAY,
+  EARTHQUAKE_DURATION, EARTHQUAKE_INTERVAL, HOOK_MAX_RANGE,
 } from './pickups.js';
 import { createCpuController } from './cpu.js';
 
@@ -70,6 +70,63 @@ export function createEngine(lobby, hooks, opts = {}){
       if(other === self || !other.alive) continue;
       other.slowUntil = Math.max(other.slowUntil || 0, elapsed + durationSec);
     }
+  }
+
+  /* Hook — ray-cast in the player's facing direction, teleport them to the
+     tile just before the first wall, crate, bomb, or other player. */
+  const FACING_DIR = { left:[-1,0], right:[1,0], up:[0,-1], down:[0,1] };
+  function hookPull(player){
+    const dir = FACING_DIR[player.facing] || FACING_DIR.down;
+    const startX = Math.floor(player.x), startY = Math.floor(player.y);
+    let landX = startX, landY = startY;
+    for(let step = 1; step <= HOOK_MAX_RANGE; step++){
+      const nx = startX + dir[0] * step, ny = startY + dir[1] * step;
+      if(field.at(nx, ny) !== TILE.FLOOR) break;
+      if(bombByTile.has(nx + ',' + ny)) break;
+      let blockedByPlayer = false;
+      for(const o of players){
+        if(o === player || !o.alive) continue;
+        if(playerOnTile(o, nx, ny)){ blockedByPlayer = true; break; }
+      }
+      if(blockedByPlayer) break;
+      landX = nx; landY = ny;
+    }
+    player.x = landX + 0.5;
+    player.y = landY + 0.5;
+  }
+
+  /* Swap — exchange position with the nearest living enemy. */
+  function swapWithNearest(player){
+    let nearest = null, bestD = Infinity;
+    for(const o of players){
+      if(o === player || !o.alive) continue;
+      const d = (o.x - player.x) * (o.x - player.x) + (o.y - player.y) * (o.y - player.y);
+      if(d < bestD){ bestD = d; nearest = o; }
+    }
+    if(!nearest) return;
+    const tmpX = player.x, tmpY = player.y;
+    player.x = nearest.x; player.y = nearest.y;
+    nearest.x = tmpX; nearest.y = tmpY;
+  }
+
+  /* Earthquake — for the next EARTHQUAKE_DURATION seconds, every
+     EARTHQUAKE_INTERVAL we shove each live bomb one tile in a random
+     direction (if the destination is free). */
+  let earthquakeUntil = 0;
+  let earthquakeNextStep = 0;
+  function startEarthquake(){
+    earthquakeUntil = elapsed + EARTHQUAKE_DURATION;
+    earthquakeNextStep = elapsed;
+  }
+
+  function pickupCtx(){
+    return {
+      elapsed,
+      slowOthers,
+      hook: hookPull,
+      swap: swapWithNearest,
+      startEarthquake,
+    };
   }
 
   /* Round-tracking. */
@@ -175,7 +232,7 @@ export function createEngine(lobby, hooks, opts = {}){
           const pi = pickups.findIndex(x => x.id === pid);
           if(pi >= 0){
             const pu = pickups[pi];
-            applyPickup(p, pu.type, { elapsed, slowOthers });
+            applyPickup(p, pu.type, pickupCtx());
             pickups.splice(pi, 1);
             pickupByTile.delete(key);
             pendingEvents.push({ type: 'pickupTaken', idx: p.idx, pickup: pu });
@@ -189,18 +246,8 @@ export function createEngine(lobby, hooks, opts = {}){
           const tx = Math.floor(p.x);
           const ty = Math.floor(p.y);
           if(field.at(tx, ty) === TILE.FLOOR && !bombByTile.has(tx+','+ty)){
-            const fullRange = p.hasSuper ? Math.max(field.width, field.height) : p.range;
-            /* Boomerang primes the placed bomb: first wave uses a tiny range,
-               and the engine schedules a second wave at fullRange after a
-               short delay.  Super still wins on its own bomb. */
-            const range = p.hasBoomerang ? BOOMERANG_FIRST_RANGE : fullRange;
-            const bomb = createBomb({ ownerIdx: p.idx, x: tx, y: ty, range });
+            const bomb = createBomb({ ownerIdx: p.idx, x: tx, y: ty, range: p.range });
             if(p.hasRemote) bomb.fuse = Infinity;
-            if(p.hasSuper){ bomb.super = true; p.hasSuper = false; }
-            if(p.hasBoomerang){
-              bomb.boomerang = { phase: 1, fullRange, delay: BOOMERANG_SECOND_DELAY };
-              p.hasBoomerang = false;
-            }
             bombs.push(bomb);
             bombByTile.set(tx+','+ty, bomb.id);
             p.bombsLive++;
@@ -243,6 +290,31 @@ export function createEngine(lobby, hooks, opts = {}){
       }
     }
 
+    /* 2a-eq. Earthquake — every EARTHQUAKE_INTERVAL while the effect is
+       active, jiggle every live bomb one tile in a random direction (only
+       if the destination is a free floor tile, no bomb, no player).  The
+       effect ends naturally when elapsed passes earthquakeUntil. */
+    if(elapsed < earthquakeUntil && elapsed >= earthquakeNextStep){
+      earthquakeNextStep = elapsed + EARTHQUAKE_INTERVAL;
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+      for(const b of bombs){
+        if(b.detonating) continue;
+        const d = dirs[Math.floor(Math.random() * 4)];
+        const nx = b.x + d[0], ny = b.y + d[1];
+        if(field.at(nx, ny) !== TILE.FLOOR) continue;
+        if(bombByTile.has(nx + ',' + ny)) continue;
+        let blocked = false;
+        for(const o of players){
+          if(!o.alive) continue;
+          if(playerOnTile(o, nx, ny)){ blocked = true; break; }
+        }
+        if(blocked) continue;
+        bombByTile.delete(b.x + ',' + b.y);
+        b.x = nx; b.y = ny;
+        bombByTile.set(b.x + ',' + b.y, b.id);
+      }
+    }
+
     /* 2b. Magnet pull — players with hasMagnet drag nearby pickups one tile
        closer along the dominant axis at MAGNET_STEP_INTERVAL cadence. */
     for(const holder of players){
@@ -280,10 +352,7 @@ export function createEngine(lobby, hooks, opts = {}){
       if(idx >= 0) bombs.splice(idx, 1);
       bombByTile.delete(b.x+','+b.y);
       const owner = players.find(p => p.idx === b.ownerIdx);
-      /* Boomerang phase-1 keeps the bombsLive slot occupied — the second
-         wave we spawn below releases it. */
-      const isBoomerangPhase1 = b.boomerang && b.boomerang.phase === 1;
-      if(owner && !isBoomerangPhase1) owner.bombsLive = Math.max(0, owner.bombsLive - 1);
+      if(owner) owner.bombsLive = Math.max(0, owner.bombsLive - 1);
 
       const segs = computeExplosionSegments(field, b.x, b.y, b.range);
       explosions.push({ segments: segs, ttl: EXPLOSION_TTL });
@@ -342,19 +411,6 @@ export function createEngine(lobby, hooks, opts = {}){
         }
       }
 
-      /* Schedule the second wave AFTER segment processing — otherwise the
-         phase-2 bomb would sit in bombByTile during phase-1's center-tile
-         chain check and detonate immediately. */
-      if(isBoomerangPhase1){
-        const phase2 = createBomb({
-          ownerIdx: b.ownerIdx, x: b.x, y: b.y, range: b.boomerang.fullRange,
-        });
-        phase2.fuse = b.boomerang.delay;
-        phase2.boomerang = { phase: 2 };
-        bombs.push(phase2);
-        bombByTile.set(phase2.x+','+phase2.y, phase2.id);
-        if(owner) owner.passthrough.add(phase2.id);
-      }
     }
 
     /* 4. Decay explosions. */

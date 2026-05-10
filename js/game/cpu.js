@@ -38,9 +38,10 @@ const SURVIVAL_THRESHOLD = 4.0;
 const STUCK_TICKS_MAX = 8;          // can't move for this many ticks → abandon route, replan
 
 const PICKUP_VALUE = {
-  bomb: 100, fire: 100, shield: 80, super: 80, speed: 70,
+  bomb: 100, fire: 100, shield: 80,
   remote: 70, ghost: 60, kick: 60, magnet: 50, slow: 40,
-  boomerang: 70, curse: -1,
+  hook: 60, swap: 80, earthquake: 50,
+  curse: -1,
 };
 
 export function createCpuController(level = 'nice'){
