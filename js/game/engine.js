@@ -7,7 +7,7 @@
 import { createField, FIELD_PRESETS, TILE } from './field.js';
 import { createInput, CONTROL_SCHEMES } from './input.js';
 import { createPlayer, stepPlayer, tilesUnderPlayer } from './players.js';
-import { createBomb, computeExplosionSegments, playerOnTile, EXPLOSION_TTL } from './bombs.js';
+import { createBomb, computeExplosionSegments, playerOnTile, playerHitByBlast, EXPLOSION_TTL } from './bombs.js';
 import {
   createPickup, pickRandomPickup, applyPickup,
   DROP_CHANCE, SLOW_DURATION,
@@ -317,7 +317,11 @@ export function createEngine(lobby, hooks, opts = {}){
         }
         for(const p of players){
           if(!p.alive) continue;
-          if(playerOnTile(p, s.x, s.y)){
+          /* Use tolerance-aware hit test: a sprite that just barely
+             grazes a blast tile (≤ 25 % of body extent into the tile)
+             survives.  This forgives slight off-centre positions during
+             corner turns. */
+          if(playerHitByBlast(p, s.x, s.y)){
             /* Shield absorbs one full hit before death. */
             if(p.shieldStacks > 0){
               p.shieldStacks -= 1;

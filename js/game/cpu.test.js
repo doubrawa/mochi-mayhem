@@ -6,7 +6,7 @@
 
 import { TILE, createField } from './field.js';
 import { stepPlayer, tilesUnderPlayer } from './players.js';
-import { createBomb, computeExplosionSegments, playerOnTile, FUSE_SECONDS, EXPLOSION_TTL } from './bombs.js';
+import { createBomb, computeExplosionSegments, playerOnTile, playerHitByBlast, FUSE_SECONDS, EXPLOSION_TTL } from './bombs.js';
 import { createPickup, pickRandomPickup, applyPickup, DROP_CHANCE } from './pickups.js';
 import { createCpuController } from './cpu.js';
 
@@ -170,7 +170,7 @@ export function runMatch({ seed, presetId = 'medium', cpuCount = 6, dt = 0.05, m
         }
         for(const p of players){
           if(!p.alive) continue;
-          if(playerOnTile(p, s.x, s.y)){
+          if(playerHitByBlast(p, s.x, s.y)){
             if(p.shieldStacks > 0){
               p.shieldStacks--;
               continue;

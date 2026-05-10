@@ -49,8 +49,18 @@ export function computeExplosionSegments(field, cx, cy, range){
 }
 
 /* AABB overlap between a player at (cx, cy) tile-coords with HALF extents,
-   and an integer tile at (tx, ty). */
+   and an integer tile at (tx, ty).  Strict overlap — any sliver counts. */
 export function playerOnTile(p, tx, ty, half = 0.40){
   return p.x + half > tx && p.x - half < tx + 1 &&
          p.y + half > ty && p.y - half < ty + 1;
+}
+
+/* Same overlap test, but with a tolerance: only count the player as hit by
+   a blast if the body protrudes more than `tolerance` (in tile-units) into
+   the tile on BOTH axes.  With tolerance = 0.2 (25 % of the 0.8-wide body
+   extent), a slight graze on the corner of a blast tile is forgiven. */
+export function playerHitByBlast(p, tx, ty, half = 0.40, tolerance = 0.2){
+  const xOverlap = Math.min(p.x + half, tx + 1) - Math.max(p.x - half, tx);
+  const yOverlap = Math.min(p.y + half, ty + 1) - Math.max(p.y - half, ty);
+  return xOverlap > tolerance && yOverlap > tolerance;
 }
