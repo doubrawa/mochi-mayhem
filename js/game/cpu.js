@@ -87,13 +87,22 @@ export function createCpuController(level = 'nice'){
       }
 
       /* ── PLAN ROUTE if we don't have one ──────────────────────────────
-         If our own bomb is still ticking AND we're already standing on a
-         safe (non-blast) tile, just wait it out — committing to a fresh
-         route now would walk us back through the blast zone of the bomb
-         we just placed.  The survival reflex above still kicks in if
-         another CPU drops a bomb that catches our position. */
+         When our own bomb is still ticking and we're safely outside the
+         blast, three cases:
+           a) We can place another bomb (multi-bomb pickup, bombsLive <
+              bombMax) → fall through to planning.  The chain-bonus in the
+              scorer will prefer placements that cascade with the first.
+           b) We can't place more, but we have hasRemote → detonate it now.
+           c) Else → just wait it out.  Replanning here would walk us back
+              through the existing blast. */
       if(!route || stepIdx >= route.steps.length){
-        if(me.bombsLive > 0 && !danger.has(myTx + ',' + myTy)){
+        const safeHere = !danger.has(myTx + ',' + myTy);
+        const liveOwn  = me.bombsLive > 0;
+        const canPlaceMore = me.bombsLive < me.bombMax;
+        if(safeHere && liveOwn && !canPlaceMore){
+          if(me.hasRemote){
+            return { dx: 0, dy: 0, bomb: true };
+          }
           return idle();
         }
         const allowBomb = view.elapsed >= startupDelay;
@@ -190,6 +199,7 @@ function planEnemyGoal(me, view, reach, allowBomb){
   /* Try ATTACK first. */
   if(allowBomb && me.bombsLive < me.bombMax){
     const enemyTiles = new Set(reachableEnemies.map(e => Math.floor(e.x) + ',' + Math.floor(e.y)));
+    const chainTiles = ownBombBlastTiles(view, me);
     let best = null;
     for(const [k, info] of reach){
       const [x, y] = k.split(',').map(Number);
@@ -199,8 +209,12 @@ function planEnemyGoal(me, view, reach, allowBomb){
       if(hits === 0) continue;
       const escape = computeEscape(me, view, x, y, me.range + 2, me.range + 2);
       if(!escape) continue;
-      const score = hits * 100 - info.dist;
-      if(!best || score > best.score){
+      /* Chain bonus: spotting our own existing bomb's blast triggers a
+         cascade.  Prefer chained placements when we have multiple bombs
+         to spend (bombMax > bombsLive > 0). */
+      const chains = chainTiles.has(k);
+      const score = hits * 100 - info.dist + (chains ? 250 : 0);
+      if(isBetterCandidate({ x, y, score }, best)){
         best = { x, y, dist: info.dist, score, escape };
       }
     }
@@ -243,6 +257,7 @@ function planExplore(me, view, reach){
    the primary score; distance only breaks ties. */
 function planClear(me, view, danger, reach){
   if(me.bombsLive >= me.bombMax) return null;
+  const chainTiles = ownBombBlastTiles(view, me);
 
   let best = null;
   for(const [k, info] of reach){
@@ -255,9 +270,14 @@ function planClear(me, view, danger, reach){
     if(crates === 0) continue;
     const escape = computeEscape(me, view, x, y, me.range + 2, me.range + 2);
     if(!escape) continue;
-    /* Crates × 1000 dominates the score; distance is only a tiebreak. */
-    const score = crates * 1000 - info.dist;
-    if(!best || score > best.score){
+    /* Crates × 1000 dominates; distance is the tiebreak; chain placements
+       (target tile sits in one of our own existing bombs' blasts) get a
+       2500 bonus so a 1-crate chain beats a 2-crate non-chain.  The
+       isBetterCandidate helper falls back to (smaller y, smaller x) when
+       scores tie, so symmetric layouts no longer cause flip-flopping. */
+    const chains = chainTiles.has(k);
+    const score = crates * 1000 - info.dist + (chains ? 2500 : 0);
+    if(isBetterCandidate({ x, y, score }, best)){
       best = { x, y, dist: info.dist, score, crates, escape };
     }
   }
@@ -506,6 +526,30 @@ function walkToward(me, target){
 }
 
 function idle(){ return { dx: 0, dy: 0, bomb: false }; }
+
+/* Stable comparison for goal candidates: prefer higher score; on a tie
+   prefer (smaller y, smaller x).  Without a deterministic tiebreak the CPU
+   flips between equal candidates each replan — the user-reported "back and
+   forth between two equally good crate-bomb spots" oscillation. */
+function isBetterCandidate(c, best){
+  if(!best) return true;
+  if(c.score !== best.score) return c.score > best.score;
+  if(c.y !== best.y) return c.y < best.y;
+  return c.x < best.x;
+}
+
+/* Set of tiles currently inside any of OUR own ticking bombs' blasts.
+   Used by planAttack/planClear to score chain-reaction placements: a
+   second bomb on one of these tiles will cascade with the first. */
+function ownBombBlastTiles(view, me){
+  const set = new Set();
+  for(const b of view.bombs){
+    if(b.ownerIdx !== me.idx) continue;
+    const segs = computeExplosionSegments(view.field, b.x, b.y, b.range);
+    for(const s of segs) set.add(s.x + ',' + s.y);
+  }
+  return set;
+}
 
 /* True if the current route ends on a tile that's permanently safe — meaning
    the committed plan WILL deliver us to safety.  Used to suppress the

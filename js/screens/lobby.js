@@ -17,7 +17,7 @@ const SCHEME_KEYS = {
 const HUMAN_SCHEME_ORDER = ['wasd', 'arrows', 'ijkl', 'numpad'];
 
 const DEFAULT_NAMES = ['Mochi', 'Bubble', 'Biscuit', 'Pickle', 'Plum', 'Sage', 'Daisy', 'Cocoa'];
-const DEFAULT_MODES = ['human', 'human', 'human', 'human', 'cpu', 'cpu', 'off', 'off'];
+const DEFAULT_MODES = ['human', 'human', 'cpu', 'cpu', 'cpu', 'cpu', 'off', 'off'];
 
 export function defaultLobbyState(){
   return {
