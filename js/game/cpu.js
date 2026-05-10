@@ -146,17 +146,72 @@ function planRoute(me, view, danger, allowBomb = true){
      safe-on-arrival under the current danger map. */
   const reach = bfsSafe(me, view, danger);
 
+  /* New priority order, per user spec:
+       1. Free path to enemy   →  ATTACK (if a bombing position works) or
+                                  PURSUE (walk closer); requires the enemy
+                                  tile to be reachable.
+       2. Free path to pickup  →  PICKUP
+       3. Clear-bomb           →  pick the spot that hits the MOST crates
+       4. Explore              →  fallback so we never idle. */
+  const enemyGoal = planEnemyGoal(me, view, reach, allowBomb);
+  if(enemyGoal) return enemyGoal;
+
+  const pickup = planPickup(me, view, reach);
+  if(pickup) return pickup;
+
   if(allowBomb){
-    const a = planAttack(me, view, danger, reach);
-    if(a) return a;
-    const c = planClear(me, view, danger, reach);
-    if(c) return c;
+    const clear = planClear(me, view, danger, reach);
+    if(clear) return clear;
   }
-  const p = planPickup(me, view, reach);
-  if(p) return p;
-  /* Always have something to do — walk to the farthest reachable safe tile
-     so the CPU keeps exploring even when no strategic goal is available. */
   return planExplore(me, view, reach);
+}
+
+/* Goal 1: enemy is on a tile we can already reach.  Prefer ATTACK (a bomb
+   spot whose blast covers the enemy) when one exists with a verified
+   escape.  Otherwise PURSUE — just walk straight at the closest reachable
+   enemy and let the next replan re-check for an attack window. */
+function planEnemyGoal(me, view, reach, allowBomb){
+  const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
+  if(enemies.length === 0) return null;
+
+  const reachableEnemies = enemies.filter(e => {
+    const k = Math.floor(e.x) + ',' + Math.floor(e.y);
+    return reach.has(k);
+  });
+  if(reachableEnemies.length === 0) return null;
+
+  /* Try ATTACK first. */
+  if(allowBomb && me.bombsLive < me.bombMax){
+    const enemyTiles = new Set(reachableEnemies.map(e => Math.floor(e.x) + ',' + Math.floor(e.y)));
+    let best = null;
+    for(const [k, info] of reach){
+      const [x, y] = k.split(',').map(Number);
+      const segs = computeExplosionSegments(view.field, x, y, me.range);
+      let hits = 0;
+      for(const s of segs) if(enemyTiles.has(s.x + ',' + s.y)) hits++;
+      if(hits === 0) continue;
+      const escape = computeEscape(me, view, x, y, me.range + 3, me.range + 4);
+      if(!escape) continue;
+      const score = hits * 100 - info.dist;
+      if(!best || score > best.score){
+        best = { x, y, dist: info.dist, score, escape };
+      }
+    }
+    if(best) return assembleRoute('attack', me, reach, best.x, best.y, true, best.escape);
+  }
+
+  /* No good attack window yet — close the gap.  Pick the closest reachable
+     enemy and route straight to their tile. */
+  let closest = null;
+  for(const e of reachableEnemies){
+    const ex = Math.floor(e.x), ey = Math.floor(e.y);
+    const info = reach.get(ex + ',' + ey);
+    if(!closest || info.dist < closest.dist){
+      closest = { x: ex, y: ey, dist: info.dist };
+    }
+  }
+  if(!closest || closest.dist === 0) return null;
+  return assembleRoute('pursue', me, reach, closest.x, closest.y, false, null);
 }
 
 /* Goal 4 (always-on fallback): EXPLORE — pick the farthest reachable safe
@@ -176,63 +231,29 @@ function planExplore(me, view, reach){
   return assembleRoute('explore', me, reach, best.x, best.y, false, null);
 }
 
-/* Goal 1: ATTACK — find a tile whose bomb hits at least one enemy.  Score
-   by hits and proximity.  Requires a verified escape. */
-function planAttack(me, view, danger, reach){
-  if(me.bombsLive >= me.bombMax) return null;
-  const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
-  if(enemies.length === 0) return null;
-  const enemyTiles = new Set(enemies.map(e => Math.floor(e.x) + ',' + Math.floor(e.y)));
-
-  let best = null;
-  for(const [k, info] of reach){
-    const [x, y] = k.split(',').map(Number);
-    const segs = computeExplosionSegments(view.field, x, y, me.range);
-    let hits = 0;
-    for(const s of segs) if(enemyTiles.has(s.x + ',' + s.y)) hits++;
-    if(hits === 0) continue;
-    /* ATTACK escapes are strict — high stakes, want big buffer. */
-    const escape = computeEscape(me, view, x, y, me.range + 3, me.range + 4);
-    if(!escape) continue;
-    const score = hits * 100 - info.dist;
-    if(!best || score > best.score){
-      best = { x, y, dist: info.dist, score, escape };
-    }
-  }
-  if(!best) return null;
-  return assembleRoute('attack', me, reach, best.x, best.y, true, best.escape);
-}
-
-/* Goal 2: CLEAR — drop a bomb that destroys crates.  Bonus for crates near
-   an enemy (helps open paths to them). */
+/* Goal 3: CLEAR — drop a bomb that destroys crates.  Per user request:
+   pick the bomb position that destroys the MOST boxes.  Crate count is
+   the primary score; distance only breaks ties. */
 function planClear(me, view, danger, reach){
   if(me.bombsLive >= me.bombMax) return null;
-  const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
 
   let best = null;
   for(const [k, info] of reach){
     const [x, y] = k.split(',').map(Number);
     const segs = computeExplosionSegments(view.field, x, y, me.range);
-    let crates = 0, cratesNearEnemy = 0;
+    let crates = 0;
     for(const s of segs){
-      if(view.field.at(s.x, s.y) === TILE.BOX){
-        crates++;
-        for(const e of enemies){
-          const ex = Math.floor(e.x), ey = Math.floor(e.y);
-          if(Math.abs(s.x - ex) + Math.abs(s.y - ey) <= 5){ cratesNearEnemy++; break; }
-        }
-      }
+      if(view.field.at(s.x, s.y) === TILE.BOX) crates++;
     }
     if(crates === 0) continue;
     /* CLEAR escapes can be tighter — crate-clearing is the bread-and-butter
-       way to make progress in dense fields, and locking it behind a
-       range+3/+4 escape leaves the CPU pacing between unreachable bomb
-       spots without ever doing anything.  range+2/+3 is enough buffer. */
+       way to make progress in dense fields. */
     const escape = computeEscape(me, view, x, y, me.range + 2, me.range + 3);
     if(!escape) continue;
-    const score = crates * 10 + cratesNearEnemy * 25 - info.dist * 2;
+    /* Crates × 1000 dominates the score; distance is only a tiebreak. */
+    const score = crates * 1000 - info.dist;
     if(!best || score > best.score){
-      best = { x, y, dist: info.dist, score, escape };
+      best = { x, y, dist: info.dist, score, crates, escape };
     }
   }
   if(!best) return null;
