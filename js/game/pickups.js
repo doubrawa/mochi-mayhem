@@ -5,11 +5,11 @@
 /* Drop probabilities for the lobby slider's three positions. */
 export const DROP_CHANCE = [0.15, 0.30, 0.50];
 
-/* Drop pool. `bomb` and `fire` appear three times so they're drawn at
-   triple the rate of the rest: extra carry slots and bigger blasts are
-   the most playable upgrades, so we want them to show up reliably. */
+/* Drop pool. `bomb` and `fire` appear twice so they're drawn at double
+   the rate of the rest — bread-and-butter upgrades, but not so dominant
+   that the exotic powerups never show up. */
 export const PICKUP_POOL = [
-  'bomb', 'bomb', 'bomb', 'fire', 'fire', 'fire',
+  'bomb', 'bomb', 'fire', 'fire',
   'remote', 'shield', 'ghost', 'slow',
   'kick', 'magnet', 'curse',
   'hook', 'swap', 'earthquake',
