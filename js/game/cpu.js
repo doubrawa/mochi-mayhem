@@ -26,6 +26,7 @@
 
 import { TILE } from './field.js';
 import { computeExplosionSegments, FUSE_SECONDS } from './bombs.js';
+import { tilesUnderPlayer } from './players.js';
 
 const CARDINALS = [[1,0],[-1,0],[0,1],[0,-1]];
 const ARRIVE_EPS = 0.18;
@@ -73,20 +74,34 @@ export function createCpuController(level = 'nice'){
 
       /* ── SURVIVAL REFLEX ──────────────────────────────────────────────
          Two ways this trips:
-           a) Our actual current tile is about to explode (any bomb covers
-              it within SURVIVAL_THRESHOLD).
-           b) An enemy bomb shares our row OR column.  We don't know the
-              enemy's range, so we treat foreign bombs as unbounded — if
-              they're in line with us we flee preemptively.
+           a) Any tile our HITBOX overlaps is about to explode (any bomb
+              covers it within SURVIVAL_THRESHOLD).  Body-extent check
+              catches the case where the sprite is straddling tiles and
+              the floored "my tile" looks safe even though the body sticks
+              into a blast tile.
+           b) An enemy bomb shares any of our body tiles' rows/columns.
+              We don't know the enemy's range, so we treat foreign bombs
+              as unbounded — if they're in line we flee preemptively.
          A committed escape route that ends on a permanently safe tile
-         (clear of both actual danger and foreign line-of-fire) suppresses
-         the reflex; we trust the plan in that case. */
+         (clear of both actual danger and foreign line-of-fire) normally
+         suppresses the reflex.  EXCEPT when the blast is imminent (< 1.5 s)
+         — at that point we always flee, route be damned: the plan is too
+         optimistic if it expects us to traverse multiple tiles in under a
+         second-and-a-half. */
       const foreignWorst = buildForeignWorstDanger(view, me);
-      const myBlast = danger.get(myTx + ',' + myTy);
-      const inActualBlast = myBlast !== undefined && myBlast < SURVIVAL_THRESHOLD;
-      const inForeignThreat = foreignWorst.has(myTx + ',' + myTy);
-      if((inActualBlast || inForeignThreat)
-         && !routeWillSave(route, stepIdx, danger, foreignWorst)){
+      let myBlastT = Infinity;
+      let inForeignThreat = false;
+      for(const [bx, by] of tilesUnderPlayer(me)){
+        const k = bx + ',' + by;
+        const t = danger.get(k);
+        if(t !== undefined && t < myBlastT) myBlastT = t;
+        if(foreignWorst.has(k)) inForeignThreat = true;
+      }
+      const inActualBlast = myBlastT < SURVIVAL_THRESHOLD;
+      const blastImminent = myBlastT < 1.5;
+      if(blastImminent
+         || ((inActualBlast || inForeignThreat)
+             && !routeWillSave(route, stepIdx, danger, foreignWorst))){
         const flee = findFleeStep(me, view, danger, foreignWorst);
         if(flee){
           route = null; stepIdx = 0;
@@ -220,9 +235,13 @@ function planAttackCandidate(me, view, reach){
   if(reachableEnemies.length === 0) return null;
 
   const enemyTiles = new Set(reachableEnemies.map(e => Math.floor(e.x) + ',' + Math.floor(e.y)));
-  const chainTiles = ownBombBlastTiles(view, me);
+  /* Tiles already covered by one of our own ticking bombs.  Placing a
+     second bomb on the same line just amplifies the same blast — looks
+     pointless and visually silly ("two bombs in a row").  Skip them. */
+  const ownBlastTiles = ownBombBlastTiles(view, me);
   let best = null;
   for(const [k, info] of reach){
+    if(ownBlastTiles.has(k)) continue;
     const [x, y] = k.split(',').map(Number);
     const segs = computeExplosionSegments(view.field, x, y, me.range);
     let hits = 0;
@@ -230,9 +249,8 @@ function planAttackCandidate(me, view, reach){
     if(hits === 0) continue;
     const escape = computeEscape(me, view, x, y, 2, me.range + 2);
     if(!escape) continue;
-    const chains = chainTiles.has(k);
-    /* Base 100 + 30 per enemy hit − 8 per tile of distance + chain bonus. */
-    const score = 100 + hits * 30 - info.dist * 8 + (chains ? 100 : 0);
+    /* Base 100 + 30 per enemy hit − 8 per tile of distance. */
+    const score = 100 + hits * 30 - info.dist * 8;
     if(isBetterCandidate({ x, y, score }, best)){
       best = { kind: 'attack', x, y, score, dist: info.dist, escape };
     }
@@ -292,7 +310,9 @@ function planExplore(me, view, reach, prevTile = null){
    chopping wood. */
 function planClearCandidate(me, view, reach){
   if(me.bombsLive >= me.bombMax) return null;
-  const chainTiles = ownBombBlastTiles(view, me);
+  /* Don't bomb tiles already in one of our own bombs' blast zones —
+     adjacent placement just doubles up on the same area. */
+  const ownBlastTiles = ownBombBlastTiles(view, me);
   const totalCrates = countCrates(view.field);
   /* Multiplier: ~1.2 when ≥60 crates left, smoothly down to 0.3 when
      few are left.  Threshold 60 is a typical post-spawn crate count on
@@ -301,6 +321,7 @@ function planClearCandidate(me, view, reach){
 
   let best = null;
   for(const [k, info] of reach){
+    if(ownBlastTiles.has(k)) continue;
     const [x, y] = k.split(',').map(Number);
     const segs = computeExplosionSegments(view.field, x, y, me.range);
     let crates = 0;
@@ -310,8 +331,7 @@ function planClearCandidate(me, view, reach){
     if(crates === 0) continue;
     const escape = computeEscape(me, view, x, y, 2, me.range + 2);
     if(!escape) continue;
-    const chains = chainTiles.has(k);
-    const rawScore = 50 + crates * 30 - info.dist * 6 + (chains ? 200 : 0);
+    const rawScore = 50 + crates * 30 - info.dist * 6;
     const score = rawScore * crateFactor;
     if(isBetterCandidate({ x, y, score }, best)){
       best = { kind: 'clear', x, y, score, dist: info.dist, escape };
