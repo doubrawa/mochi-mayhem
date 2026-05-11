@@ -1,7 +1,11 @@
 import { charSvg, bombSvg, sparkSvg, heartSvg, cloudSvg, flowerSvg, starSvg, icoSvg } from '../sprites.js';
+import { startBgm } from '../audio.js';
 
 export function render(ctx){
   const { app, navigate } = ctx;
+  /* Request BGM once we reach the title.  Actual playback starts on the
+     first user gesture (audio context unlock). */
+  startBgm();
   const section = document.createElement('section');
   section.className = 'screen active';
   section.innerHTML = `

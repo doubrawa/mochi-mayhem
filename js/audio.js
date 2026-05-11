@@ -28,7 +28,8 @@ function ensureCtx(){
 function attachUnlock(){
   const unlock = () => {
     const c = ensureCtx();
-    if(c && c.state === 'suspended') c.resume().catch(()=>{});
+    if(c && c.state === 'suspended') c.resume().then(tryStartBgm).catch(()=>{});
+    else tryStartBgm();
     window.removeEventListener('pointerdown', unlock);
     window.removeEventListener('keydown', unlock);
   };
@@ -116,21 +117,22 @@ export function sfxFuseTick(){
   noise({ dur: 0.02, gain: 0.06, filterType: 'highpass', freqStart: 5000, freqEnd: 3000 });
 }
 
-/* Explosion — sub thud + mid crackle + high snap, layered.  Reads as a
-   chunky impact rather than the pure sine thump of the old version. */
+/* Explosion — heavy, dirty, with a deep sub thump, a chaotic mid-band
+   body, a sharp high-frequency transient on impact, and a long low
+   rumble tail.  Aim is "blown TNT", not "cartoon poof". */
 export function sfxExplosion(){
-  /* Sub-bass thump that gives the boom its weight. */
-  tone({ freq: 110, type: 'sine', dur: 0.45, attack: 0.001, decay: 0.42,
-         gain: 0.6, freqEnd: 35 });
-  /* Mid-range body — filtered noise sweeping low. */
-  noise({ dur: 0.5, gain: 0.55, filterType: 'lowpass',
-          freqStart: 1800, freqEnd: 80 });
-  /* Bright initial crackle that gives the attack snap. */
-  noise({ dur: 0.12, gain: 0.4, filterType: 'highpass',
-          freqStart: 5000, freqEnd: 1500 });
-  /* A tiny ringing layer for character. */
-  tone({ freq: 220, type: 'square', dur: 0.18, attack: 0.001, decay: 0.16,
-         gain: 0.18, freqEnd: 90 });
+  /* 1. Sharp white-noise transient: the instant CRACK on impact. */
+  noise({ dur: 0.06, gain: 0.6, filterType: 'highpass',
+          freqStart: 6000, freqEnd: 3000 });
+  /* 2. Deep sub thump that drops fast — gives the boom its punch. */
+  tone({ freq: 95, type: 'sine', dur: 0.7, attack: 0.001, decay: 0.65,
+         gain: 0.9, freqEnd: 22 });
+  /* 3. Wide mid-band body, lowpassed and bandpass-resonant for grit. */
+  noise({ dur: 0.55, gain: 0.75, filterType: 'lowpass',
+          freqStart: 2400, freqEnd: 90, q: 1.6 });
+  /* 4. Long low rumble tail — the room shaking after. */
+  noise({ dur: 1.5, gain: 0.38, filterType: 'lowpass',
+          freqStart: 300, freqEnd: 55, q: 0.8, delay: 0.08 });
 }
 
 /* Pickup — three rising fat tones forming a triumph triplet. */
@@ -166,6 +168,114 @@ export function sfxShield(){
          gain: 0.30, freqEnd: 1800 });
   tone({ freq: 2880, type: 'sine', dur: 0.20, attack: 0.001, decay: 0.18,
          gain: 0.12, freqEnd: 4320 });
+}
+
+/* ============ background music ============
+
+   A short looping chip-tune: square-wave bass plodding through a
+   I–IV–V–I progression in C major, a triangle-wave melody arpeggiating
+   over the top, and a soft hi-hat click on each eighth note.  The
+   scheduler precomputes note start times relative to bgmStartTime so
+   tempo never drifts.  The BGM has its own gain node fed into the
+   master gain so it can sit comfortably under the SFX. */
+
+const BGM_BPM = 112;
+const BGM_EIGHTH = (60 / BGM_BPM) / 2;     // seconds per eighth note
+const BGM_STEPS = 16;                       // 16 eighths = 8 beats = ~4.3 s loop
+/* Bass: roots of C, F, G, C, two beats each. */
+const BGM_BASS = [
+  130.81, 0, 0, 0,   //  C3 . . .
+  174.61, 0, 0, 0,   //  F3 . . .
+  196.00, 0, 0, 0,   //  G3 . . .
+  130.81, 0, 0, 0,   //  C3 . . .
+];
+/* Melody arpeggios drawn from each underlying chord (C, F, G, C). */
+const BGM_MEL = [
+  523.25, 659.25, 783.99, 659.25,   //  C5 E5 G5 E5
+  698.46, 880.00, 1046.50, 880.00,  //  F5 A5 C6 A5
+  783.99, 987.77, 1174.66, 987.77,  //  G5 B5 D6 B5
+  1046.50, 783.99, 659.25, 523.25,  //  C6 G5 E5 C5
+];
+
+let bgmGain      = null;
+let bgmRequested = false;             // user asked for music
+let bgmStartTime = 0;                 // ctx time of step 0
+let bgmNextStep  = 0;                 // global step index
+let bgmTimer     = null;              // setInterval handle for scheduler
+
+/* Public API. */
+export function startBgm(){
+  bgmRequested = true;
+  tryStartBgm();
+}
+export function stopBgm(){
+  bgmRequested = false;
+  if(bgmTimer){ clearInterval(bgmTimer); bgmTimer = null; }
+}
+
+function tryStartBgm(){
+  if(!bgmRequested || bgmTimer) return;
+  const c = ensureCtx();
+  if(!c || c.state === 'suspended') return;   // wait for user-gesture unlock
+  if(!bgmGain){
+    bgmGain = c.createGain();
+    bgmGain.gain.value = 0.18;                // sit ~15 dB below the SFX peaks
+    bgmGain.connect(masterGain);
+  }
+  bgmStartTime = c.currentTime + 0.1;
+  bgmNextStep = 0;
+  bgmTimer = setInterval(scheduleBgm, 100);
+  scheduleBgm();
+}
+
+/* Audio Worklet-style lookahead: every 100 ms, queue any notes whose
+   start times fall within the next 300 ms.  Web Audio handles precise
+   playback timing once a note is scheduled, so jitter from setInterval
+   doesn't affect the audible groove. */
+function scheduleBgm(){
+  if(muted) return;
+  const c = ensureCtx();
+  if(!c || c.state === 'suspended') return;
+  const horizon = c.currentTime + 0.3;
+  while(true){
+    const t = bgmStartTime + bgmNextStep * BGM_EIGHTH;
+    if(t > horizon) break;
+    const step = bgmNextStep % BGM_STEPS;
+    const bassF = BGM_BASS[step];
+    const melF  = BGM_MEL[step];
+    if(bassF) bgmNote(t, bassF, 'square',   BGM_EIGHTH * 3.6, 0.42);
+    if(melF)  bgmNote(t, melF,  'triangle', BGM_EIGHTH * 1.6, 0.28);
+    /* Subtle hi-hat click on every step for groove. */
+    bgmHat(t, BGM_EIGHTH * 0.3, 0.10);
+    bgmNextStep++;
+  }
+}
+
+function bgmNote(startT, freq, type, dur, gain){
+  const c = ensureCtx();
+  if(!c || !bgmGain) return;
+  const osc = c.createOscillator();
+  const env = c.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  env.gain.setValueAtTime(0, startT);
+  env.gain.linearRampToValueAtTime(gain, startT + 0.008);
+  env.gain.exponentialRampToValueAtTime(0.001, startT + dur);
+  osc.connect(env); env.connect(bgmGain);
+  osc.start(startT);
+  osc.stop(startT + dur + 0.05);
+}
+
+function bgmHat(startT, dur, gain){
+  const c = ensureCtx();
+  if(!c || !bgmGain) return;
+  const src = c.createBufferSource(); src.buffer = getNoiseBuf(c);
+  const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 6500;
+  const env = c.createGain();
+  env.gain.setValueAtTime(gain, startT);
+  env.gain.exponentialRampToValueAtTime(0.001, startT + dur);
+  src.connect(hp); hp.connect(env); env.connect(bgmGain);
+  src.start(startT); src.stop(startT + dur + 0.05);
 }
 
 /* Earthquake — a long, deep rumble across the duration of the effect. */
