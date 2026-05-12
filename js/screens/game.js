@@ -753,6 +753,13 @@ function handleEvents(events, view, engine){
     if(ev.type === 'boxBroken'){
       const t = view.tileEls[ev.y * view.fieldWidth + ev.x];
       if(t){ t.classList.remove('crate'); }
+    } else if(ev.type === 'tileConverted'){
+      /* Sudden-death wall — swap whatever the tile was for a stone block. */
+      const t = view.tileEls[ev.y * view.fieldWidth + ev.x];
+      if(t){
+        t.classList.remove('grass', 'crate', 'b');
+        t.classList.add('stone');
+      }
     } else if(ev.type === 'bombPlaced'){
       sfxBombPlace();
     } else if(ev.type === 'bombDetonated'){

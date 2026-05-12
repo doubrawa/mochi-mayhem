@@ -20,6 +20,10 @@ const HUMAN_SCHEMES = ['wasd', 'arrows', 'ijkl', 'numpad'];
 /* Lobby-level speed setting applied uniformly to every player. */
 const SPEED_FACTORS = { slow: 0.7, normal: 1.0, fast: 1.5 };
 const BASE_SPEED = 4.5;
+/* In the last N seconds of a timed round the field fills up with pillars
+   from the top-left in row-major order — anyone caught on the cell as it
+   converts dies.  Only applies when the lobby has set a finite timeLimit. */
+const SUDDEN_DEATH_DURATION = 30;
 
 export function createEngine(lobby, hooks, opts = {}){
   const presetId = lobby.fieldSize in FIELD_PRESETS ? lobby.fieldSize : 'medium';
@@ -72,6 +76,50 @@ export function createEngine(lobby, hooks, opts = {}){
 
   const goodieFreq = lobby.goodieFreq != null ? lobby.goodieFreq : 1;
   const dropChance = DROP_CHANCE[goodieFreq] ?? DROP_CHANCE[1];
+
+  /* Sudden-death state — how many cells (row-major) have already been
+     converted to PILLAR.  Stays 0 forever on infinite-time rounds. */
+  let suddenDeathConverted = 0;
+
+  /* Convert one cell to PILLAR, burning whatever's on it. */
+  function convertCellToWall(cx, cy){
+    if(field.at(cx, cy) === TILE.PILLAR) return;
+    const key = cx + ',' + cy;
+    /* Burn any pickup. */
+    const puId = pickupByTile.get(key);
+    if(puId != null){
+      const pi = pickups.findIndex(x => x.id === puId);
+      if(pi >= 0){
+        pickups.splice(pi, 1);
+        pickupByTile.delete(key);
+        pendingEvents.push({ type: 'pickupBurned', x: cx, y: cy });
+      }
+    }
+    /* Detonate any bomb sitting on the cell — the chain-detonation loop
+       this tick will pick it up. */
+    const bombId = bombByTile.get(key);
+    if(bombId != null){
+      const b = bombs.find(x => x.id === bombId);
+      if(b && !b.detonating) b.detonating = true;
+    }
+    /* Mutate the field tile.  boxBroken-style change for the renderer. */
+    field.set(cx, cy, TILE.PILLAR);
+    pendingEvents.push({ type: 'tileConverted', x: cx, y: cy, kind: 'pillar' });
+    /* Kill anyone meaningfully overlapping this tile (same tolerance as
+       the blast hit test).  Shields absorb a hit just like a blast. */
+    for(const p of players){
+      if(!p.alive) continue;
+      if(playerHitByBlast(p, cx, cy)){
+        if(p.shieldStacks > 0){
+          p.shieldStacks -= 1;
+          pendingEvents.push({ type: 'shieldUsed', idx: p.idx });
+          continue;
+        }
+        p.alive = false;
+        pendingEvents.push({ type: 'playerKilled', idx: p.idx, by: null });
+      }
+    }
+  }
 
   /* Slow callback handed to applyPickup so it can affect other players. */
   function slowOthers(self, durationSec){
@@ -343,7 +391,25 @@ export function createEngine(lobby, hooks, opts = {}){
       if(b.fuse <= 0) b.detonating = true;
     }
 
-    /* 3. Resolve detonations + chain reactions. */
+    /* 3b. Sudden death — once the round enters its last
+       SUDDEN_DEATH_DURATION seconds, fill the field with pillars in
+       row-major order, paced so the whole grid would be converted right
+       as the timer hits zero.  Anyone caught on a converting cell dies.
+       No-op for infinite rounds (timeLimit === 0). */
+    if(timeLimit > 0){
+      const sdStart = timeLimit - SUDDEN_DEATH_DURATION;
+      if(elapsed >= sdStart){
+        const totalCells = field.width * field.height;
+        const sdElapsed = Math.min(elapsed - sdStart, SUDDEN_DEATH_DURATION);
+        const target = Math.min(totalCells, Math.floor(sdElapsed * totalCells / SUDDEN_DEATH_DURATION));
+        while(suddenDeathConverted < target){
+          const idx = suddenDeathConverted++;
+          convertCellToWall(idx % field.width, Math.floor(idx / field.width));
+        }
+      }
+    }
+
+    /* 3c. Resolve detonations + chain reactions. */
     const queue = bombs.filter(b => b.detonating);
     while(queue.length){
       const b = queue.shift();
