@@ -25,7 +25,7 @@
  */
 
 import { TILE } from './field.js';
-import { computeExplosionSegments, FUSE_SECONDS } from './bombs.js';
+import { computeExplosionSegments, playerHitByBlast, FUSE_SECONDS } from './bombs.js';
 import { tilesUnderPlayer } from './players.js';
 
 const CARDINALS = [[1,0],[-1,0],[0,1],[0,-1]];
@@ -73,39 +73,33 @@ export function createCpuController(level = 'nice'){
       const danger = buildDangerMap(view);
 
       /* ── SURVIVAL REFLEX ──────────────────────────────────────────────
-         Two ways this trips:
-           a) Any tile our HITBOX overlaps is about to explode (any bomb
-              covers it within SURVIVAL_THRESHOLD).  Body-extent check
-              catches the case where the sprite is straddling tiles and
-              the floored "my tile" looks safe even though the body sticks
-              into a blast tile.
-           b) An enemy bomb shares any of our body tiles' rows/columns.
-              We don't know the enemy's range, so we treat foreign bombs
-              as unbounded — if they're in line we flee preemptively.
-         A committed escape route that ends on a permanently safe tile
-         (clear of both actual danger and foreign line-of-fire) normally
-         suppresses the reflex.  EXCEPT when the blast is imminent (< 1.5 s)
-         — at that point we always flee, route be damned: the plan is too
-         optimistic if it expects us to traverse multiple tiles in under a
-         second-and-a-half. */
+         Body-extent check: every tile the HITBOX overdaps by more than
+         the engine's playerHitByBlast tolerance is treated as part of
+         "where I am".  If any of those tiles is in actual blast or in a
+         foreign bomb's line of fire AND our committed route doesn't
+         deliver us to a permanently-safe destination, we abandon the
+         route and commit to a MULTI-STEP flee route.  Critically: we do
+         NOT recompute per tick — once a flee route is committed and its
+         destination is still safe, routeWillSave keeps the reflex
+         quiet so the CPU follows the path without oscillating between
+         alternative flee targets every frame. */
       const foreignWorst = buildForeignWorstDanger(view, me);
       let myBlastT = Infinity;
       let inForeignThreat = false;
       for(const [bx, by] of tilesUnderPlayer(me)){
+        if(!playerHitByBlast(me, bx, by)) continue;
         const k = bx + ',' + by;
         const t = danger.get(k);
         if(t !== undefined && t < myBlastT) myBlastT = t;
         if(foreignWorst.has(k)) inForeignThreat = true;
       }
       const inActualBlast = myBlastT < SURVIVAL_THRESHOLD;
-      const blastImminent = myBlastT < 1.5;
-      if(blastImminent
-         || ((inActualBlast || inForeignThreat)
-             && !routeWillSave(route, stepIdx, danger, foreignWorst))){
-        const flee = findFleeStep(me, view, danger, foreignWorst);
-        if(flee){
-          route = null; stepIdx = 0;
-          return walkToward(me, flee);
+      if((inActualBlast || inForeignThreat)
+         && !routeWillSave(route, stepIdx, danger, foreignWorst)){
+        const fleeRoute = planFlee(me, view, danger, foreignWorst);
+        if(fleeRoute){
+          route = fleeRoute; stepIdx = 0;
+          return walkToward(me, fleeRoute.steps[0]);
         }
       }
 
@@ -545,15 +539,19 @@ function computeEscape(me, view, bx, by, minCornerDist, minStraightDist){
   return reconstructPath(visited, bx, by, best.x, best.y);
 }
 
-/* Survival reflex: find a flee target and return a single step toward it.
-   Two-tier preference:
-     1. CORNER escape — closest tile that's outside both the actual danger
-        map AND every foreign bomb's worst-case row/column.  This is the
-        "around the corner" position the user asks for.
-     2. FAR escape — closest tile outside the actual danger map.  Used when
-        no true corner is reachable; we accept staying in some enemy's
-        line-of-fire as long as we're not in an immediate blast. */
-function findFleeStep(me, view, danger, foreignWorst){
+/* Survival reflex: build a MULTI-STEP flee route to a safe destination.
+   Returning a full route (not just the next step) is what stops the CPU
+   from oscillating at corner transitions — once the route is committed,
+   routeWillSave keeps the reflex quiet for the rest of the escape.
+   Two-tier destination preference:
+     1. CORNER tile — outside both the actual danger map AND every
+        foreign bomb's worst-case row/column; chosen at the shortest
+        distance.  "Around the corner" of the bomb.
+     2. FAR tile — outside actual danger but still in some foreign
+        line-of-fire.  Used when no true corner is reachable; we prefer
+        the FARTHEST such tile (more tiles between us and the enemy bomb
+        source). */
+function planFlee(me, view, danger, foreignWorst){
   const visited = bfsSafe(me, view, danger);
   const myTx = Math.floor(me.x), myTy = Math.floor(me.y);
   let cornerBest = null;
@@ -568,10 +566,6 @@ function findFleeStep(me, view, danger, foreignWorst){
         cornerBest = { x, y, dist: info.dist };
       }
     } else {
-      /* Still in some foreign line-of-fire, but at least clear of immediate
-         actual danger.  Prefer the FARTHEST such tile (more tiles between
-         us and the enemy bomb's source = harder for a long-range bomb to
-         reach us). */
       if(!farBest || info.dist > farBest.dist){
         const [x, y] = k.split(',').map(Number);
         farBest = { x, y, dist: info.dist };
@@ -580,18 +574,18 @@ function findFleeStep(me, view, danger, foreignWorst){
   }
   const best = cornerBest || farBest;
   if(!best){
-    /* Truly trapped — pick any passable neighbour. */
+    /* Truly trapped — single-step route into any passable neighbour. */
     for(const [dx, dy] of CARDINALS){
-      if(isPassable(view, me, myTx + dx, myTy + dy)){
-        return { x: myTx + dx, y: myTy + dy };
+      const nx = myTx + dx, ny = myTy + dy;
+      if(isPassable(view, me, nx, ny)){
+        return { kind: 'flee', steps: [{ x: nx, y: ny, kind: 'walk' }] };
       }
     }
     return null;
   }
-  /* Walk the first step of the path toward the chosen flee tile. */
   const path = reconstructPath(visited, myTx, myTy, best.x, best.y);
   if(!path || path.length === 0) return null;
-  return { x: path[0][0], y: path[0][1] };
+  return { kind: 'flee', steps: path.map(([x, y]) => ({ x, y, kind: 'walk' })) };
 }
 
 /* ====================================================
