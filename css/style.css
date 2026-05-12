@@ -550,19 +550,30 @@ img.spr,canvas.spr{image-rendering:pixelated;display:block}
     padding:0;
   }
   .gpcol.left,.gpcol.right{display:none}
-  /* space-between pins the topbar to the top of .gp and the board to
-     the bottom — so the board hugs the touch-pad. */
-  .stage{flex:1;min-height:0;justify-content:space-between;padding:6px 0 0;gap:10px}
+  /* Stack topbar -> board -> bomb-button tightly from the top so the
+     "big empty space above the board" the user complained about is
+     gone.  Empty space (the board's portrait aspect mismatch) ends up
+     below the bomb button instead. */
+  .stage{flex:1;min-height:0;justify-content:flex-start;padding:6px 0 0;gap:10px}
   .topbar{gap:8px;margin-bottom:0}
   .timer{font-size:26px;padding:5px 12px;border-width:2.5px}
   .timer .dot{width:9px;height:9px}
   .round-pill,.live-pill,.end-round{font-size:11px;padding:5px 10px;border-width:2.5px}
-  /* On the gameplay screen the touch-pad is part of the flex column
-     instead of pinned via position:fixed. */
+  /* The touch-pad is now a child of .stage and contains only the BOMB
+     button.  Override the default position:fixed + grid layout from the
+     base touch-device rule. */
   .screen.gp-screen .touch-pad{
     position:static;
+    display:flex;justify-content:center;align-items:center;
+    grid-template-columns:none;
     padding:6px 12px env(safe-area-inset-bottom, 6px);
     flex:none;
+    gap:0;
+  }
+  /* Slightly smaller bomb button so it doesn't dominate the screen. */
+  .screen.gp-screen .touch-pad .bomb{
+    width:96px;height:96px;font-size:16px;
+    justify-self:auto;align-self:auto;
   }
   /* Body padding + min-height:100vh would push the .screen.gp-screen
      beyond the visible viewport, producing the bottom cutoff + scroll

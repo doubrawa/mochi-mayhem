@@ -45,8 +45,11 @@ function computeTileSize(fieldW, fieldH){
      for chrome around the page. */
   const isMobile = window.innerWidth < 900;
   const appW = Math.min(window.innerWidth, 1700);
-  const hReserve = isMobile ? 40  : 600;
-  const vReserve = isMobile ? 380 : 200;
+  /* Mobile gameplay: body/screen/gp all run flush to the viewport edge,
+     so basically no horizontal chrome.  Vertical chrome = topbar (~55) +
+     bomb button area (~120) + safe-area buffer (~30). */
+  const hReserve = isMobile ? 8   : 600;
+  const vReserve = isMobile ? 220 : 200;
   const availW = Math.max(220, (isMobile ? window.innerWidth : appW) - hReserve);
   const availH = Math.max(220, window.innerHeight - vReserve);
   const ts = Math.min(Math.floor(availW / fieldW), Math.floor(availH / fieldH));
@@ -142,8 +145,10 @@ function renderHostOrLocal(ctx){
     scheduleRoundEnd(ctx, result, isHost);
   });
 
-  /* Touch controls — appears only on touch devices via @media. */
-  detachTouch = attachTouchControls(section);
+  /* Touch controls — BOMB button + tap-on-board movement.  Only the
+     bomb button is visible on touch devices; the board listener fires
+     regardless of device so mouse can test the scheme on desktop too. */
+  detachTouch = attachAllTouch(section);
 
   /* Host network setup: broadcast field once, then state every interval, and
      wire MSG_INPUT messages from guests into remoteInputs. */
@@ -209,6 +214,9 @@ function gameShell(match, initialSecs){
           <button class="end-round" data-action="end-round">Forfeit ▶</button>
         </div>
         <div class="board" id="board"></div>
+        <div class="touch-pad" data-touch>
+          <button class="bomb" data-key="Space">BOMB</button>
+        </div>
       </div>
       <div class="gpcol right" id="rightHud">
         <div class="pup-row">
@@ -217,21 +225,11 @@ function gameShell(match, initialSecs){
         </div>
       </div>
     </div>
-    <div class="touch-pad" data-touch>
-      <div class="stick">
-        <button class="up"    data-key="KeyW">▲</button>
-        <button class="down"  data-key="KeyS">▼</button>
-        <button class="left"  data-key="KeyA">◀</button>
-        <button class="right" data-key="KeyD">▶</button>
-      </div>
-      <button class="bomb" data-key="Space">BOMB</button>
-    </div>
   `;
 }
 
-/* Wire each touch button to synthesize keydown/keyup so the existing input
-   system picks it up.  Multi-touch friendly: separate touches on different
-   buttons map to separate keys.  Returns a cleanup function. */
+/* Wire each touch button (just the BOMB button now — the D-pad is gone)
+   to synthesize keydown/keyup so the existing input system picks it up. */
 function attachTouchControls(section){
   const buttons = section.querySelectorAll('[data-touch] [data-key]');
   if(!buttons.length) return () => {};
@@ -244,7 +242,6 @@ function attachTouchControls(section){
     btn.addEventListener('touchstart', onDown, { passive: false });
     btn.addEventListener('touchend',   onUp,   { passive: false });
     btn.addEventListener('touchcancel',onUp,   { passive: false });
-    /* Mouse fallback for desktop testing. */
     btn.addEventListener('mousedown',  onDown);
     btn.addEventListener('mouseup',    onUp);
     btn.addEventListener('mouseleave', onUp);
@@ -260,6 +257,75 @@ function attachTouchControls(section){
       btn.removeEventListener('mouseleave', onUp);
     }
   };
+}
+
+/* Tap-on-board movement controls.  Touching anywhere on the board picks
+   a single cardinal direction based on which half of the board the
+   pointer is in (whichever axis has the larger offset from the centre
+   wins).  Dragging while held updates the direction.  Releases stop the
+   movement.  Direction is dispatched as P1's WASD keys to integrate
+   with the existing input scheme. */
+function attachBoardControls(section){
+  const board = section.querySelector('#board');
+  if(!board) return () => {};
+  const dispatch = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code }));
+  let activeCode = null;
+  let pointerId = null;
+
+  function directionFromXY(clientX, clientY){
+    const rect = board.getBoundingClientRect();
+    const dx = clientX - (rect.left + rect.width / 2);
+    const dy = clientY - (rect.top  + rect.height / 2);
+    if(Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'KeyA' : 'KeyD';
+    return dy < 0 ? 'KeyW' : 'KeyS';
+  }
+  function setDirection(code){
+    if(code === activeCode) return;
+    if(activeCode) dispatch('keyup', activeCode);
+    activeCode = code;
+    if(activeCode) dispatch('keydown', activeCode);
+  }
+  function onDown(e){
+    e.preventDefault();
+    if(pointerId !== null) return;     // single-finger movement
+    pointerId = e.pointerId;
+    board.setPointerCapture(pointerId);
+    setDirection(directionFromXY(e.clientX, e.clientY));
+  }
+  function onMove(e){
+    if(e.pointerId !== pointerId) return;
+    setDirection(directionFromXY(e.clientX, e.clientY));
+  }
+  function onUp(e){
+    if(e.pointerId !== pointerId) return;
+    try { board.releasePointerCapture(pointerId); } catch {}
+    pointerId = null;
+    setDirection(null);
+  }
+
+  board.addEventListener('pointerdown',   onDown);
+  board.addEventListener('pointermove',   onMove);
+  board.addEventListener('pointerup',     onUp);
+  board.addEventListener('pointercancel', onUp);
+  board.addEventListener('pointerleave',  onUp);
+  /* Prevent the browser's default scroll/pan gestures eating the touch. */
+  board.style.touchAction = 'none';
+
+  return () => {
+    if(activeCode){ dispatch('keyup', activeCode); activeCode = null; }
+    board.removeEventListener('pointerdown',   onDown);
+    board.removeEventListener('pointermove',   onMove);
+    board.removeEventListener('pointerup',     onUp);
+    board.removeEventListener('pointercancel', onUp);
+    board.removeEventListener('pointerleave',  onUp);
+  };
+}
+
+/* Compose the two touch wiring helpers into a single detach callable. */
+function attachAllTouch(section){
+  const a = attachTouchControls(section);
+  const b = attachBoardControls(section);
+  return () => { a(); b(); };
 }
 
 function scheduleRoundEnd(ctx, result, isHost){
@@ -355,9 +421,9 @@ function renderClient(ctx){
 
   netHandles = { sendInterval, input, conn: ctx.net.client.conn };
 
-  /* Touch controls — synthesized keystrokes feed the local input that ships
-     to the host on the same interval. */
-  detachTouch = attachTouchControls(section);
+  /* Touch controls — synthesized keystrokes feed the local input that
+     ships to the host on the same interval. */
+  detachTouch = attachAllTouch(section);
 }
 
 function handleClientNetMsg(m, ctx, view, remote, boardEl, section){
