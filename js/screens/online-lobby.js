@@ -65,12 +65,57 @@ export function render(ctx){
   section.querySelector('[data-action="host"]').addEventListener('click', async () => {
     setStatus('Reserving a room…');
     const code = generateRoomCode();
+    /* `host` is assigned below after the await; the helpers reference it
+       via closure so they pick up the value once it's set. */
+    let host = null;
+
+    /* If the guest's reported charId collides with the host's choice or
+       another guest's, reassign it to the first free buddy.  When we
+       reassign, send the guest a MSG_PICK echo so their local state
+       (ctx.net.charId) lines up with what we'll use at match start. */
+    function dedupeGuestChar(guest){
+      if(!host) return;
+      const taken = new Set([ctx.lobby.players[0].id]);
+      for(const g of host.guests.values()){
+        if(g === guest) continue;
+        if(g.charId) taken.add(g.charId);
+      }
+      if(!guest.charId || taken.has(guest.charId)){
+        const replacement = pickAvailableForGuest(taken);
+        if(replacement !== guest.charId){
+          guest.charId = replacement;
+          host.sendTo(guest, { t: MSG_PICK, charId: replacement });
+        }
+      }
+    }
+
+    /* Push the live lobby roster to every connected guest so their
+       roster panel mirrors the host's view (including any deduped
+       character reassignment). */
+    function broadcastLobby(){
+      if(!host) return;
+      const me = ctx.lobby.players[0];
+      const players = [{ id: me.id, name: me.name, kind: 'host' }];
+      for(const g of host.guests.values()){
+        players.push({
+          id: g.charId || 'mochi',
+          name: g.name || 'Buddy',
+          kind: 'remote',
+        });
+      }
+      const payload = { t: MSG_LOBBY, state: { players } };
+      for(const g of host.guests.values()){
+        host.sendTo(g, payload);
+      }
+    }
+
     try {
-      const host = await createHost(code, {
-        onGuestConnect: () => refreshHostUi(),
-        onGuestDisconnect: () => refreshHostUi(),
+      host = await createHost(code, {
+        onGuestConnect: () => { refreshHostUi(); broadcastLobby(); },
+        onGuestDisconnect: () => { refreshHostUi(); broadcastLobby(); },
         onMessage: (guest, msg) => {
           if(msg.t === MSG_JOIN || msg.t === MSG_PICK){
+            dedupeGuestChar(guest);
             refreshHostUi();
             broadcastLobby();
           }
@@ -225,6 +270,14 @@ function handleClientMessage(ctx, section, msg){
   if(msg.t === MSG_WELCOME){
     ctx.net.myIdx = msg.idx;
     ctx.net.matchLobby = msg.lobby;
+  } else if(msg.t === MSG_PICK){
+    /* Host reassigned our character because someone else already had it
+       picked.  Sync local state so the next lobby refresh shows us as
+       the new buddy. */
+    if(msg.charId){
+      ctx.net.charId = msg.charId;
+      if(ctx.lobby?.players?.[0]) ctx.lobby.players[0].id = msg.charId;
+    }
   } else if(msg.t === MSG_LOBBY){
     ctx.net.matchLobby = msg.state || msg.lobby;
     /* Refresh roster display. */
