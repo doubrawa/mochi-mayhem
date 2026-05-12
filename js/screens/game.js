@@ -13,7 +13,7 @@ import {
 } from '../net/protocol.js';
 import {
   sfxBombPlace, sfxExplosion, sfxPickup, sfxDeath, sfxShield, sfxRoundEnd,
-  sfxEarthquake,
+  sfxEarthquake, startBgm, stopBgm,
 } from '../audio.js';
 
 const SNAPSHOT_INTERVAL_MS = 50;       // 20 Hz state broadcast
@@ -86,6 +86,7 @@ export function render(ctx){
 
 function renderHostOrLocal(ctx){
   const { app, navigate, lobby, match } = ctx;
+  startBgm();
   const section = document.createElement('section');
   section.className = 'screen gp-screen active';
   const initialSecs = lobby.timeLimit || 0;
@@ -350,6 +351,7 @@ function scheduleRoundEnd(ctx, result, isHost){
 
 export function teardown(){
   stopTimer();
+  stopBgm();
   if(endTransitionHandle != null){ clearTimeout(endTransitionHandle); endTransitionHandle = null; }
   if(engine){ engine.stop(); engine = null; }
   if(netHandles){
@@ -368,6 +370,7 @@ export function teardown(){
    snapshots.  Local input is captured and forwarded to the host. */
 function renderClient(ctx){
   const { app, navigate, lobby, match } = ctx;
+  startBgm();
   const section = document.createElement('section');
   section.className = 'screen gp-screen active';
   const initialSecs = lobby.timeLimit || 0;
