@@ -30,14 +30,13 @@ export const PUPS = {
   slow:   { nm:'Slow-mo',     ds:'slows other buddies',    sym:'#pu-clock',  bg:'#ffe9a8' },
   kick:   { nm:'Kick',        ds:'push bombs you bump',    sym:'#pu-kick',   bg:'#ffd0e0' },
   magnet: { nm:'Magnet',      ds:'pulls power-ups',        sym:'#pu-magnet', bg:'#ffd0d6' },
-  curse:  { nm:'Curse',       ds:'rotten · 5s debuff',     sym:'#pu-skull',  bg:'#fff'    },
   confuse:    { nm:'Confuse',    ds:'flips your controls',   sym:'#pu-confuse',    bg:'#fff'    },
   flash:      { nm:'Flash',      ds:'2× speed for 5s',       sym:'#pu-flash',      bg:'#ffe9a8' },
   earthquake: { nm:'Earthquake', ds:'bombs jiggle 3s',       sym:'#pu-earthquake', bg:'#ffd0d6' },
 };
 
 /* All powerup IDs in display order for the reference panel. */
-export const ALL_PUP_IDS = ['fire','bomb','kick','shield','ghost','slow','magnet','remote','curse','confuse','flash','earthquake'];
+export const ALL_PUP_IDS = ['fire','bomb','kick','shield','ghost','slow','magnet','remote','confuse','flash','earthquake'];
 
 /* ====================================================
    Helpers — every function returns a real SVG element

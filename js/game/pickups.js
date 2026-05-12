@@ -11,7 +11,7 @@ export const DROP_CHANCE = [0.15, 0.30, 0.50];
 export const PICKUP_POOL = [
   'bomb', 'bomb', 'fire', 'fire',
   'remote', 'shield', 'ghost', 'slow',
-  'kick', 'magnet', 'curse',
+  'kick', 'magnet',
   'confuse', 'flash', 'earthquake',
 ];
 
@@ -25,8 +25,6 @@ export const GHOST_DURATION = 5;
 export const SLOW_DURATION = 3;
 /* Slow multiplier (40%). */
 export const SLOW_FACTOR = 0.4;
-/* Curse: how long does self-slow last when you pick up a skull? */
-export const CURSE_DURATION = 5;
 /* Magnet: pull pickups within this many tiles toward the holder. */
 export const MAGNET_RADIUS = 4;
 /* How often a magnet drags each pickup one tile closer (seconds). */
@@ -80,10 +78,6 @@ export function applyPickup(player, type, ctx){
       break;
     case 'magnet':
       player.hasMagnet = true;
-      break;
-    /* Curse — Skull, the rotten one.  Slows the player who picks it up. */
-    case 'curse':
-      player.slowUntil = Math.max(player.slowUntil || 0, ctx.elapsed + CURSE_DURATION);
       break;
     /* Confuse — flips the picker's own movement controls for a few
        seconds.  Self-debuff: a tempting but punishing pickup. */
