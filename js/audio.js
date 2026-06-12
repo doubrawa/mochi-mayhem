@@ -240,6 +240,10 @@ function scheduleBgm(){
   while(true){
     const t = bgmStartTime + bgmNextStep * BGM_EIGHTH;
     if(t > horizon) break;
+    /* Steps whose start time already passed (mute pause, tab suspend)
+       are skipped silently — otherwise unmuting would fire every missed
+       note at once in a single noisy burst. */
+    if(t < c.currentTime - 0.05){ bgmNextStep++; continue; }
     const step = bgmNextStep % BGM_STEPS;
     const bassF = BGM_BASS[step];
     const melF  = BGM_MEL[step];

@@ -13,7 +13,7 @@ import {
 } from '../net/protocol.js';
 import {
   sfxBombPlace, sfxExplosion, sfxPickup, sfxDeath, sfxShield, sfxRoundEnd,
-  sfxEarthquake, startBgm, stopBgm,
+  sfxEarthquake, startBgm, stopBgm, setMuted, isMuted,
 } from '../audio.js';
 
 const SNAPSHOT_INTERVAL_MS = 50;       // 20 Hz state broadcast
@@ -150,6 +150,8 @@ function renderHostOrLocal(ctx){
     scheduleRoundEnd(ctx, result, isHost);
   });
 
+  wireSoundToggle(section);
+
   /* Touch controls — BOMB button + tap-on-board movement.  Only the
      bomb button is visible on touch devices; the board listener fires
      regardless of device so mouse can test the scheme on desktop too. */
@@ -216,6 +218,7 @@ function gameShell(match, initialSecs){
           <div class="round-pill">Round ${match.current} / ${match.rounds}</div>
           <div class="timer"><span class="dot"></span><span data-timer>${initialSecs > 0 ? formatTime(initialSecs) : '∞'}</span></div>
           <div class="live-pill"><span class="blip"></span>LIVE</div>
+          <button class="end-round" data-action="toggle-sound">${isMuted() ? '🔇' : '🔊'}</button>
           <button class="end-round" data-action="end-round">Forfeit ▶</button>
         </div>
         <div class="board" id="board"></div>
@@ -237,6 +240,19 @@ function gameShell(match, initialSecs){
       </div>
     </div>
   `;
+}
+
+/* Sound on/off toggle in the topbar.  Muting flips the global audio
+   flag (silences SFX and pauses BGM note scheduling); unmuting lets the
+   BGM scheduler resume on its own — it keeps ticking and simply starts
+   emitting notes again. */
+function wireSoundToggle(section){
+  const btn = section.querySelector('[data-action="toggle-sound"]');
+  if(!btn) return;
+  btn.addEventListener('click', () => {
+    setMuted(!isMuted());
+    btn.textContent = isMuted() ? '🔇' : '🔊';
+  });
 }
 
 /* Wire each touch button (just the BOMB button now — the D-pad is gone)
@@ -431,6 +447,8 @@ function renderClient(ctx){
   section.querySelector('[data-action="end-round"]').addEventListener('click', () => {
     navigate('title');
   });
+
+  wireSoundToggle(section);
 
   /* Visual timer mirrors received elapsed against initialSecs. */
   const timerEl = section.querySelector('[data-timer]');
