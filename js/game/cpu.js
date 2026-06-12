@@ -37,6 +37,12 @@ const ESCAPE_MARGIN = 1.2;          // arrival + this < blast time
    it the CPU walks committed escape paths that another CPU's bomb has cut. */
 const SURVIVAL_THRESHOLD = 4.0;
 const STUCK_TICKS_MAX = 8;          // can't move for this many ticks → abandon route, replan
+/* Consecutive no-route idle ticks before the CPU gives up waiting and
+   wanders one tile.  Catches the dead-end where planRoute keeps
+   returning null (e.g. EXPLORE suppressed by the ping-pong guard) —
+   without this the CPU stands frozen until the world changes around
+   it. ~45 ticks ≈ 0.75 s at 60 fps. */
+const IDLE_TICKS_MAX = 45;
 
 const PICKUP_VALUE = {
   bomb: 100, fire: 100, shield: 80,
@@ -49,6 +55,7 @@ export function createCpuController(level = 'nice'){
   let route = null;     // { kind: 'attack'|'clear'|'pickup', steps: [{x,y,kind: 'walk'|'bomb'}] }
   let stepIdx = 0;
   let stuckTicks = 0;
+  let idleTicks = 0;    // consecutive ticks spent idle with no route
   let lastPos = null;
   /* Random startup delay (0-1.5 s) prevents 6 CPUs from all dropping their
      first bomb on the same tick.  Synchronised early bombs make the field
@@ -136,7 +143,29 @@ export function createCpuController(level = 'nice'){
         const allowBomb = view.elapsed >= startupDelay;
         route = planRoute(me, view, danger, allowBomb, prevTile);
         stepIdx = 0;
-        if(!route) return idle();
+        if(!route){
+          /* Planning failed.  Tolerate a short wait (the world is often
+             about to change — a blast clearing, a crate breaking), but
+             after IDLE_TICKS_MAX ticks force a one-tile wander to any
+             safe passable neighbour.  prevTile is allowed here: after a
+             genuine pause this is "turn around and go back", not the
+             rapid ping-pong the EXPLORE guard exists to stop. */
+          idleTicks++;
+          if(idleTicks > IDLE_TICKS_MAX){
+            for(const [dx, dy] of CARDINALS){
+              const nx = myTx + dx, ny = myTy + dy;
+              if(!isPassable(view, me, nx, ny)) continue;
+              const blastT = danger.get(nx + ',' + ny);
+              if(blastT !== undefined && blastT < 2.0) continue;
+              idleTicks = 0;
+              route = { kind: 'wander', steps: [{ x: nx, y: ny, kind: 'walk' }] };
+              stepIdx = 0;
+              return walkToward(me, route.steps[0]);
+            }
+          }
+          return idle();
+        }
+        idleTicks = 0;
       }
 
       /* ── ROUTE INTEGRITY ─────────────────────────────────────────────
