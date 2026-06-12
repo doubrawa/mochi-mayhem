@@ -107,15 +107,13 @@ export function createEngine(lobby, hooks, opts = {}){
     field.set(cx, cy, TILE.PILLAR);
     pendingEvents.push({ type: 'tileConverted', x: cx, y: cy, kind: 'pillar' });
     /* Kill anyone meaningfully overlapping this tile (same tolerance as
-       the blast hit test).  Shields absorb a hit just like a blast. */
+       the blast hit test).  The wall kills THROUGH shields: a shield
+       "absorbing" the conversion would leave the survivor entombed
+       inside the new pillar — alive, unable to move, and unkillable
+       because their cell never converts twice. */
     for(const p of players){
       if(!p.alive) continue;
       if(playerHitByBlast(p, cx, cy)){
-        if(p.shieldStacks > 0){
-          p.shieldStacks -= 1;
-          pendingEvents.push({ type: 'shieldUsed', idx: p.idx });
-          continue;
-        }
         p.alive = false;
         pendingEvents.push({ type: 'playerKilled', idx: p.idx, by: null });
       }

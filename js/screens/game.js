@@ -218,7 +218,9 @@ function gameShell(match, initialSecs){
           <div class="round-pill">Round ${match.current} / ${match.rounds}</div>
           <div class="timer"><span class="dot"></span><span data-timer>${initialSecs > 0 ? formatTime(initialSecs) : '∞'}</span></div>
           <div class="live-pill"><span class="blip"></span>LIVE</div>
-          <button class="end-round" data-action="toggle-sound">${isMuted() ? '🔇' : '🔊'}</button>
+          <button class="end-round sound-btn" data-action="toggle-sound" title="Sound on/off">
+            <svg width="22" height="22" viewBox="0 0 24 24"><use href="${isMuted() ? '#ic-snd-off' : '#ic-snd-on'}"/></svg>
+          </button>
           <button class="end-round" data-action="end-round">Forfeit ▶</button>
         </div>
         <div class="board" id="board"></div>
@@ -251,7 +253,8 @@ function wireSoundToggle(section){
   if(!btn) return;
   btn.addEventListener('click', () => {
     setMuted(!isMuted());
-    btn.textContent = isMuted() ? '🔇' : '🔊';
+    const use = btn.querySelector('use');
+    if(use) use.setAttribute('href', isMuted() ? '#ic-snd-off' : '#ic-snd-on');
   });
 }
 

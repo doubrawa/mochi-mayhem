@@ -391,6 +391,10 @@ img.spr,canvas.spr{image-rendering:pixelated;display:block}
   cursor:pointer;box-shadow:0 4px 0 var(--ink);
 }
 .end-round:hover{background:var(--butter2)}
+/* Icon-only variant of .end-round for the sound toggle — square-ish,
+   svg centred, no text baseline weirdness. */
+.sound-btn{display:flex;align-items:center;justify-content:center;padding:8px 12px}
+.sound-btn svg{display:block}
 
 .board{
   --ts:42px;
