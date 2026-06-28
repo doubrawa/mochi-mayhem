@@ -43,6 +43,13 @@ const STUCK_TICKS_MAX = 8;          // can't move for this many ticks → abando
    without this the CPU stands frozen until the world changes around
    it. ~45 ticks ≈ 0.75 s at 60 fps. */
 const IDLE_TICKS_MAX = 45;
+/* How many tiles ahead of a moving enemy to treat as a bomb target.  A
+   bomb has a 3 s fuse, so aiming only at where the enemy stands now almost
+   always misses a runner; weighting the next couple of tiles in its
+   heading lets the blast actually land on it.  Two tiles is the sweet
+   spot — far enough to lead, short enough that erratic enemies don't make
+   it noise. */
+const LEAD_TILES = 2;
 
 const PICKUP_VALUE = {
   bomb: 100, fire: 100, shield: 80,
@@ -67,6 +74,9 @@ export function createCpuController(level = 'nice'){
      idle instead of walking back. */
   let prevTile = null;
   let curTile = null;
+  /* Enemy positions from the previous tick, idx → {x,y}.  Used to derive
+     each enemy's current heading for LEAD targeting (buildEnemyTargets). */
+  const enemyPrev = new Map();
 
   return {
     decide(me, view){
@@ -78,6 +88,13 @@ export function createCpuController(level = 'nice'){
       }
       curTile = tileKey;
       const danger = buildDangerMap(view);
+
+      /* Predicted, trap-weighted enemy target tiles for ATTACK planning.
+         Build from last tick's positions, THEN record this tick's — order
+         matters so the heading is the delta across the tick.  Done every
+         tick (even when we return early) so the heading stays continuous. */
+      const enemyTargets = buildEnemyTargets(view, me, enemyPrev);
+      recordEnemyPositions(view, me, enemyPrev);
 
       /* ── SURVIVAL REFLEX ──────────────────────────────────────────────
          Body-extent check: every tile the HITBOX overdaps by more than
@@ -159,7 +176,7 @@ export function createCpuController(level = 'nice'){
              planning move us somewhere safer first. */
         }
         const allowBomb = view.elapsed >= startupDelay;
-        route = planRoute(me, view, danger, allowBomb, prevTile);
+        route = planRoute(me, view, danger, allowBomb, prevTile, enemyTargets);
         stepIdx = 0;
         if(!route){
           /* Nothing productive to do.  Don't sit on a live remote bomb —
@@ -241,7 +258,7 @@ export function createCpuController(level = 'nice'){
    Route planning — try each priority in order.
    ==================================================== */
 
-function planRoute(me, view, danger, allowBomb = true, prevTile = null){
+function planRoute(me, view, danger, allowBomb = true, prevTile = null, enemyTargets = null){
   /* BFS reachability — every path tile must be currently passable AND
      safe-on-arrival under the current danger map. */
   const reach = bfsSafe(me, view, danger);
@@ -253,7 +270,7 @@ function planRoute(me, view, danger, allowBomb = true, prevTile = null){
      pickup; massive crate cluster > nearby pickup). */
   const candidates = [];
   if(allowBomb){
-    const a = planAttackCandidate(me, view, reach);
+    const a = planAttackCandidate(me, view, reach, enemyTargets);
     if(a) candidates.push(a);
     const c = planClearCandidate(me, view, reach);
     if(c) candidates.push(c);
@@ -273,38 +290,119 @@ function planRoute(me, view, danger, allowBomb = true, prevTile = null){
   return planExplore(me, view, reach, prevTile);
 }
 
-/* ATTACK candidate: a bomb position whose blast hits at least one
-   reachable enemy, with a verified escape.  Returns the highest-scoring
-   spot or null. */
-function planAttackCandidate(me, view, reach){
-  if(me.bombsLive >= me.bombMax) return null;
-  const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
-  if(enemies.length === 0) return null;
-  const reachableEnemies = enemies.filter(e => reach.has(Math.floor(e.x) + ',' + Math.floor(e.y)));
-  if(reachableEnemies.length === 0) return null;
+/* Count an enemy's orthogonal escape exits — floor tiles it could step
+   onto.  Few exits ⇒ cornered ⇒ a higher-value bomb target (TRAP
+   awareness).  Cheap (4 lookups), so it can feed the pre-sort score. */
+function enemyExitCount(view, e){
+  const ex = Math.floor(e.x), ey = Math.floor(e.y);
+  const f = view.field;
+  let exits = 0;
+  for(const [dx, dy] of CARDINALS){
+    const nx = ex + dx, ny = ey + dy;
+    if(nx < 0 || ny < 0 || nx >= f.width || ny >= f.height) continue;
+    if(f.at(nx, ny) === TILE.FLOOR) exits++;
+  }
+  return exits;
+}
 
-  const enemyTiles = new Set(reachableEnemies.map(e => Math.floor(e.x) + ',' + Math.floor(e.y)));
+/* Build the weighted enemy TARGET map used by planAttackCandidate.
+   For each living enemy:
+     • trapMult scales every weight up when the enemy has few exits, so a
+       cornered enemy outranks one in the open (TRAP awareness).
+     • If it's moving, weight the next LEAD_TILES tiles in its heading
+       (LEAD targeting) plus a small weight on its current tile (it might
+       stop/turn).  If it's standing still, weight only its current tile.
+   Projection stops at the first non-floor tile (a blast can't reach
+   through a wall anyway). */
+function buildEnemyTargets(view, me, enemyPrev){
+  const targets = new Map();
+  const add = (x, y, w) => {
+    const k = x + ',' + y;
+    targets.set(k, (targets.get(k) || 0) + w);
+  };
+  const f = view.field;
+  for(const e of view.players){
+    if(e.idx === me.idx || !e.alive) continue;
+    const ex = Math.floor(e.x), ey = Math.floor(e.y);
+    const trapMult = 1 + (4 - enemyExitCount(view, e)) * 0.4;
+    const prev = enemyPrev.get(e.idx);
+    let dx = 0, dy = 0;
+    if(prev){
+      const rdx = e.x - prev.x, rdy = e.y - prev.y;
+      /* Dominant axis only — diagonal motion isn't possible on the grid. */
+      if(Math.abs(rdx) >= Math.abs(rdy)){
+        if(Math.abs(rdx) > 0.02) dx = Math.sign(rdx);
+      } else if(Math.abs(rdy) > 0.02){
+        dy = Math.sign(rdy);
+      }
+    }
+    if(dx === 0 && dy === 0){
+      add(ex, ey, 1.0 * trapMult);
+      continue;
+    }
+    add(ex, ey, 0.4 * trapMult);
+    let cx = ex, cy = ey;
+    for(let i = 1; i <= LEAD_TILES; i++){
+      cx += dx; cy += dy;
+      if(cx < 0 || cy < 0 || cx >= f.width || cy >= f.height) break;
+      if(f.at(cx, cy) !== TILE.FLOOR) break;
+      add(cx, cy, 1.0 * trapMult);
+    }
+  }
+  return targets;
+}
+
+/* Snapshot the current enemy positions for next tick's heading delta. */
+function recordEnemyPositions(view, me, enemyPrev){
+  enemyPrev.clear();
+  for(const e of view.players){
+    if(e.idx === me.idx || !e.alive) continue;
+    enemyPrev.set(e.idx, { x: e.x, y: e.y });
+  }
+}
+
+/* ATTACK candidate: a bomb position whose blast covers a weighted enemy
+   TARGET tile, with a verified escape.  `enemyTargets` (built by
+   buildEnemyTargets) is a map of tileKey → weight that already folds in
+   two things:
+     • LEAD TARGETING — a moving enemy's predicted next tiles are weighted,
+       not just where it stands now, so a 3 s fuse actually catches a
+       running target instead of always exploding where it used to be.
+     • TRAP awareness — enemies with few escape exits get a higher weight,
+       so we prefer bombing a cornered enemy over one in the open.
+   Two phases for speed: score every hitting placement cheaply, sort, then
+   verify the expensive escape only from the best down until one is viable
+   (computeEscape used to run for EVERY hitting tile every tick). */
+function planAttackCandidate(me, view, reach, enemyTargets){
+  if(me.bombsLive >= me.bombMax) return null;
+  if(!enemyTargets || enemyTargets.size === 0) return null;
+
   /* Tiles already covered by one of our own ticking bombs.  Placing a
      second bomb on the same line just amplifies the same blast — looks
      pointless and visually silly ("two bombs in a row").  Skip them. */
   const ownBlastTiles = ownBombBlastTiles(view, me);
-  let best = null;
+  const raw = [];
   for(const [k, info] of reach){
     if(ownBlastTiles.has(k)) continue;
     const [x, y] = k.split(',').map(Number);
     const segs = computeExplosionSegments(view.field, x, y, me.range);
-    let hits = 0;
-    for(const s of segs) if(enemyTiles.has(s.x + ',' + s.y)) hits++;
-    if(hits === 0) continue;
-    const escape = computeEscape(me, view, x, y, 2, me.range + 2);
-    if(!escape) continue;
-    /* Base 100 + 30 per enemy hit − 8 per tile of distance. */
-    const score = 100 + hits * 30 - info.dist * 8;
-    if(isBetterCandidate({ x, y, score }, best)){
-      best = { kind: 'attack', x, y, score, dist: info.dist, escape };
+    let hitWeight = 0;
+    for(const s of segs){
+      const w = enemyTargets.get(s.x + ',' + s.y);
+      if(w) hitWeight += w;
     }
+    if(hitWeight === 0) continue;
+    /* Base 100 + 30 per weighted hit − 8 per tile of distance. */
+    const score = 100 + hitWeight * 30 - info.dist * 8;
+    raw.push({ x, y, score, dist: info.dist });
   }
-  return best;
+  if(raw.length === 0) return null;
+  raw.sort(candidateOrder);
+  for(const c of raw){
+    const escape = computeEscape(me, view, c.x, c.y, 2, me.range + 2);
+    if(escape) return { kind: 'attack', x: c.x, y: c.y, score: c.score, dist: c.dist, escape };
+  }
+  return null;
 }
 
 /* PURSUE candidate: walk toward the closest reachable enemy without
@@ -368,7 +466,10 @@ function planClearCandidate(me, view, reach){
      a medium field. */
   const crateFactor = Math.min(1.2, Math.max(0.3, totalCrates / 60));
 
-  let best = null;
+  /* Same two-phase trick as ATTACK: cheap score for every crate-hitting
+     placement, sort, then verify the expensive escape only from the best
+     down until one is viable. */
+  const raw = [];
   for(const [k, info] of reach){
     if(ownBlastTiles.has(k)) continue;
     const [x, y] = k.split(',').map(Number);
@@ -378,15 +479,16 @@ function planClearCandidate(me, view, reach){
       if(view.field.at(s.x, s.y) === TILE.BOX) crates++;
     }
     if(crates === 0) continue;
-    const escape = computeEscape(me, view, x, y, 2, me.range + 2);
-    if(!escape) continue;
-    const rawScore = 50 + crates * 30 - info.dist * 6;
-    const score = rawScore * crateFactor;
-    if(isBetterCandidate({ x, y, score }, best)){
-      best = { kind: 'clear', x, y, score, dist: info.dist, escape };
-    }
+    const score = (50 + crates * 30 - info.dist * 6) * crateFactor;
+    raw.push({ x, y, score, dist: info.dist });
   }
-  return best;
+  if(raw.length === 0) return null;
+  raw.sort(candidateOrder);
+  for(const c of raw){
+    const escape = computeEscape(me, view, c.x, c.y, 2, me.range + 2);
+    if(escape) return { kind: 'clear', x: c.x, y: c.y, score: c.score, dist: c.dist, escape };
+  }
+  return null;
 }
 
 function countCrates(field){
@@ -494,9 +596,14 @@ function bfsSafe(me, view, danger, startTx, startTy){
   const sy = startTy !== undefined ? startTy : Math.floor(me.y);
   const visited = new Map();
   visited.set(sx + ',' + sy, { dist: 0, prev: null });
+  /* Head-index queue instead of Array.shift(): shift() is O(n) per pop,
+     which makes the whole BFS O(n²).  BFS is the hottest path in the CPU
+     (run several times per tick per CPU), so we advance a read cursor and
+     never mutate the array front. */
   const queue = [[sx, sy, 0]];
-  while(queue.length){
-    const [x, y, d] = queue.shift();
+  let head = 0;
+  while(head < queue.length){
+    const [x, y, d] = queue[head++];
     if(d > BFS_LIMIT) continue;
     for(const [dx, dy] of CARDINALS){
       const nx = x + dx, ny = y + dy;
@@ -666,15 +773,16 @@ function walkToward(me, target){
 
 function idle(){ return { dx: 0, dy: 0, bomb: false }; }
 
-/* Stable comparison for goal candidates: prefer higher score; on a tie
-   prefer (smaller y, smaller x).  Without a deterministic tiebreak the CPU
-   flips between equal candidates each replan — the user-reported "back and
-   forth between two equally good crate-bomb spots" oscillation. */
-function isBetterCandidate(c, best){
-  if(!best) return true;
-  if(c.score !== best.score) return c.score > best.score;
-  if(c.y !== best.y) return c.y < best.y;
-  return c.x < best.x;
+/* Stable ordering for bomb-placement candidates: highest score first, then
+   (smaller y, smaller x) as a deterministic tiebreak.  Without the tiebreak
+   the CPU flips between equal candidates each replan — the user-reported
+   "back and forth between two equally good crate-bomb spots" oscillation.
+   Used as the Array.sort comparator so attack/clear can rank candidates
+   cheaply, then verify the expensive escape only for the best ones. */
+function candidateOrder(a, b){
+  if(a.score !== b.score) return b.score - a.score;
+  if(a.y !== b.y) return a.y - b.y;
+  return a.x - b.x;
 }
 
 /* Set of tiles currently inside any of OUR own ticking bombs' blasts.
