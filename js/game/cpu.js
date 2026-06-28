@@ -110,6 +110,18 @@ export function createCpuController(level = 'nice'){
         }
       }
 
+      /* ── REMOTE KILL TRIGGER ──────────────────────────────────────────
+         A remote bomb has an infinite fuse and never detonates on its
+         own — the CPU must trigger it explicitly.  The instant one of our
+         live bombs has an enemy in its blast, and firing won't catch our
+         own body, detonate.  Checked every tick (not just at route end)
+         so we blow it the moment an enemy steps into the kill zone. */
+      if(me.hasRemote
+         && ownBombHitsEnemy(view, me)
+         && !ownDetonationHitsSelf(view, me)){
+        return { dx: 0, dy: 0, bomb: false, detonate: true };
+      }
+
       /* ── STUCK DETECTION ──────────────────────────────────────────────
          If we haven't moved a meaningful amount for STUCK_TICKS_MAX ticks
          (e.g. another CPU dropped a bomb in our path), drop the route and
@@ -134,16 +146,30 @@ export function createCpuController(level = 'nice'){
         const safeHere = !danger.has(myTx + ',' + myTy);
         const liveOwn  = me.bombsLive > 0;
         const canPlaceMore = me.bombsLive < me.bombMax;
+        /* At max capacity with a live bomb there's nothing more to place.
+           A remote bomb never goes off by itself, so detonate it (when we
+           won't catch our own blast); a normal bomb we just wait out —
+           replanning here would walk us back through our own blast. */
         if(safeHere && liveOwn && !canPlaceMore){
-          if(me.hasRemote){
-            return { dx: 0, dy: 0, bomb: true };
+          if(me.hasRemote && !ownDetonationHitsSelf(view, me)){
+            return { dx: 0, dy: 0, bomb: false, detonate: true };
           }
-          return idle();
+          if(!me.hasRemote) return idle();
+          /* remote, but detonating would graze us — fall through and let
+             planning move us somewhere safer first. */
         }
         const allowBomb = view.elapsed >= startupDelay;
         route = planRoute(me, view, danger, allowBomb, prevTile);
         stepIdx = 0;
         if(!route){
+          /* Nothing productive to do.  Don't sit on a live remote bomb —
+             detonate it (when safe) rather than standing frozen.  With
+             spare bomb slots the at-max branch above never fires, so
+             without this a remote bomb placed early would never go off
+             and the CPU would just stop. */
+          if(safeHere && liveOwn && me.hasRemote && !ownDetonationHitsSelf(view, me)){
+            return { dx: 0, dy: 0, bomb: false, detonate: true };
+          }
           /* Planning failed.  Tolerate a short wait (the world is often
              about to change — a blast clearing, a crate breaking), but
              after IDLE_TICKS_MAX ticks force a one-tile wander to any
@@ -662,6 +688,40 @@ function ownBombBlastTiles(view, me){
     for(const s of segs) set.add(s.x + ',' + s.y);
   }
   return set;
+}
+
+/* Our own bombs that haven't started detonating yet — the ones a remote
+   trigger could still set off. */
+function ownLiveBombs(view, me){
+  return view.bombs.filter(b => b.ownerIdx === me.idx && !b.detonating);
+}
+
+/* True if detonating our own live bombs right now would catch at least one
+   living enemy (used to decide when to pull the remote trigger). */
+function ownBombHitsEnemy(view, me){
+  const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
+  if(enemies.length === 0) return false;
+  for(const b of ownLiveBombs(view, me)){
+    const segs = computeExplosionSegments(view.field, b.x, b.y, b.range);
+    for(const s of segs){
+      for(const e of enemies){
+        if(playerHitByBlast(e, s.x, s.y)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/* True if detonating our own live bombs right now would catch OUR body —
+   a guard against remote-triggering ourselves to death. */
+function ownDetonationHitsSelf(view, me){
+  for(const b of ownLiveBombs(view, me)){
+    const segs = computeExplosionSegments(view.field, b.x, b.y, b.range);
+    for(const s of segs){
+      if(playerHitByBlast(me, s.x, s.y)) return true;
+    }
+  }
+  return false;
 }
 
 /* Worst-case danger from foreign (non-own) bombs.  We don't know the

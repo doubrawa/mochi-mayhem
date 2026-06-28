@@ -188,6 +188,7 @@ export function createEngine(lobby, hooks, opts = {}){
         r = {
           dx: action.dx, dy: action.dy, bomb: action.bomb,
           bombEdge: action.bomb && !wasBomb,
+          detonate: !!action.detonate,
         };
       } else if(p.type === 'remote'){
         const action = remoteInputProvider(p.idx) || { dx:0, dy:0, bomb:false };
@@ -262,6 +263,16 @@ export function createEngine(lobby, hooks, opts = {}){
             pickupByTile.delete(key);
             pendingEvents.push({ type: 'pickupTaken', idx: p.idx, pickup: pu });
           }
+        }
+      }
+
+      /* Explicit remote detonation (CPU only — humans detonate via the
+         at-max bomb-press fallback below).  Fires every live bomb we own
+         regardless of remaining capacity, so a CPU holding spare bomb
+         slots can still trigger a remote bomb instead of standing on it. */
+      if(r.detonate && p.hasRemote){
+        for(const b of bombs){
+          if(b.ownerIdx === p.idx && !b.detonating) b.detonating = true;
         }
       }
 
