@@ -50,6 +50,16 @@ const IDLE_TICKS_MAX = 45;
    spot — far enough to lead, short enough that erratic enemies don't make
    it noise. */
 const LEAD_TILES = 2;
+/* CLEAR scoring bonuses for "bomb your way toward the enemy".  A boxed-in
+   enemy isn't reachable, so ATTACK can't fire — instead we reward clearing
+   the wall of crates between us and it.  These bonuses are added OUTSIDE
+   the crate-count multiplier, so they stay strong in the endgame (few
+   crates left, crateFactor low) which is exactly when finishing a trapped
+   enemy matters most.  DIG_TOWARD_ENEMY_BONUS is a flat reward for any
+   bomb that breaks at least one on-path crate; PATH_CRATE_BONUS stacks per
+   on-path crate the blast clears. */
+const DIG_TOWARD_ENEMY_BONUS = 70;
+const PATH_CRATE_BONUS = 50;
 
 const PICKUP_VALUE = {
   bomb: 100, fire: 100, shield: 80,
@@ -272,7 +282,11 @@ function planRoute(me, view, danger, allowBomb = true, prevTile = null, enemyTar
   if(allowBomb){
     const a = planAttackCandidate(me, view, reach, enemyTargets);
     if(a) candidates.push(a);
-    const c = planClearCandidate(me, view, reach);
+    /* The wall of crates between us and the nearest boxed-in enemy —
+       computed once here and handed to CLEAR so it digs toward the enemy
+       instead of chopping the biggest woodpile anywhere on the map. */
+    const cratesToward = cratesTowardEnemy(me, view);
+    const c = planClearCandidate(me, view, reach, cratesToward);
     if(c) candidates.push(c);
   }
   const pu = planPickupCandidate(me, view, reach);
@@ -450,12 +464,58 @@ function planExplore(me, view, reach, prevTile = null){
   return assembleRoute('explore', me, reach, best.x, best.y, false, null);
 }
 
+/* Crate tiles lying on the shortest dig-path from us to the nearest enemy,
+   found by a BFS that treats BOX as passable (only PILLAR / boundary
+   block).  These are the "wall of wood" between us and a boxed-in enemy —
+   the tiles planClearCandidate rewards clearing so the CPU tunnels toward
+   the enemy.  Returns an empty set when no enemy exists or none is
+   reachable even through crates (sealed off by pillars). */
+function cratesTowardEnemy(me, view){
+  const enemies = view.players.filter(p => p.idx !== me.idx && p.alive);
+  if(enemies.length === 0) return new Set();
+  const f = view.field;
+  const sx = Math.floor(me.x), sy = Math.floor(me.y);
+  const startKey = sx + ',' + sy;
+  const enemyKeys = new Set(enemies.map(e => Math.floor(e.x) + ',' + Math.floor(e.y)));
+  const prev = new Map();
+  prev.set(startKey, null);
+  const queue = [[sx, sy]];
+  let head = 0;
+  let found = null;
+  while(head < queue.length){
+    const [x, y] = queue[head++];
+    const k = x + ',' + y;
+    if(k !== startKey && enemyKeys.has(k)){ found = k; break; }
+    for(const [dx, dy] of CARDINALS){
+      const nx = x + dx, ny = y + dy, nk = nx + ',' + ny;
+      if(prev.has(nk)) continue;
+      if(f.at(nx, ny) === TILE.PILLAR) continue;   // floor + box pass, pillar/edge block
+      prev.set(nk, k);
+      queue.push([nx, ny]);
+    }
+  }
+  if(!found) return new Set();
+  const crates = new Set();
+  let cur = found;
+  while(cur){
+    const [cx, cy] = cur.split(',').map(Number);
+    if(f.at(cx, cy) === TILE.BOX) crates.add(cur);
+    cur = prev.get(cur);
+  }
+  return crates;
+}
+
 /* CLEAR candidate: a bomb position that destroys at least one crate.
-   Score is scaled by how many crates remain on the field — early game
-   (lots of crates) we prioritise CLEAR; late game (few crates) it drops
-   well below ATTACK and PICKUP, since end-game is about killing not
-   chopping wood. */
-function planClearCandidate(me, view, reach){
+   Two score components:
+     • a generic crate-clearing score, scaled by how many crates remain on
+       the field — early game (lots of crates) we prioritise CLEAR; late
+       game it fades since end-game is about killing not chopping wood; and
+     • a DIRECTED bonus for clearing crates that sit on the dig-path toward
+       a boxed-in enemy (`cratesToward`), so the CPU tunnels toward a
+       trapped enemy instead of clearing the biggest woodpile elsewhere.
+       This bonus is added outside crateFactor so it stays decisive in the
+       endgame, when finishing the last cornered enemy is the whole game. */
+function planClearCandidate(me, view, reach, cratesToward){
   if(me.bombsLive >= me.bombMax) return null;
   /* Don't bomb tiles already in one of our own bombs' blast zones —
      adjacent placement just doubles up on the same area. */
@@ -474,12 +534,16 @@ function planClearCandidate(me, view, reach){
     if(ownBlastTiles.has(k)) continue;
     const [x, y] = k.split(',').map(Number);
     const segs = computeExplosionSegments(view.field, x, y, me.range);
-    let crates = 0;
+    let crates = 0, pathCrates = 0;
     for(const s of segs){
-      if(view.field.at(s.x, s.y) === TILE.BOX) crates++;
+      if(view.field.at(s.x, s.y) === TILE.BOX){
+        crates++;
+        if(cratesToward && cratesToward.has(s.x + ',' + s.y)) pathCrates++;
+      }
     }
     if(crates === 0) continue;
-    const score = (50 + crates * 30 - info.dist * 6) * crateFactor;
+    let score = (50 + crates * 30 - info.dist * 6) * crateFactor;
+    if(pathCrates > 0) score += DIG_TOWARD_ENEMY_BONUS + pathCrates * PATH_CRATE_BONUS;
     raw.push({ x, y, score, dist: info.dist });
   }
   if(raw.length === 0) return null;
